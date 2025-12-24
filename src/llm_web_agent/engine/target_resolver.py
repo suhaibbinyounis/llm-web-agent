@@ -31,6 +31,13 @@ class ResolutionStrategy(Enum):
     FUZZY = "fuzzy"             # Interactive element search
     DYNAMIC = "dynamic"         # Wait for dynamic elements (dropdowns, modals)
     FAILED = "failed"
+    # Backwards compatibility aliases
+    EXACT = "direct"
+    TEXT = "text_first"
+
+
+# Backwards compatibility alias - tests use ResolutionLayer
+ResolutionLayer = ResolutionStrategy
 
 
 @dataclass
@@ -53,7 +60,7 @@ class ResolvedTarget:
 
 
 # JavaScript for text-first element finding
-TEXT_FIRST_JS = '''
+TEXT_FIRST_JS = r'''
 (searchText) => {
     const results = [];
     searchText = searchText.toLowerCase().trim();
@@ -631,3 +638,17 @@ class TargetResolver:
             result = await self.resolve(page, target, intent)
             results.append(result)
         return results
+
+
+# Standalone function for backwards compatibility
+async def resolve_multiple(
+    resolver: TargetResolver,
+    page: "IPage",
+    targets: Dict[str, str],
+    intent: Optional[str] = None,
+) -> Dict[str, ResolvedTarget]:
+    """Resolve multiple targets by name."""
+    results = {}
+    for name, target in targets.items():
+        results[name] = await resolver.resolve(page, target, intent)
+    return results

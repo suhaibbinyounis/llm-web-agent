@@ -9,8 +9,11 @@ from typing import Any, Dict, List, Optional
 from llm_web_agent.engine.batch_executor import BatchExecutor, BatchResult
 from llm_web_agent.engine.task_graph import TaskStep, StepIntent, StepStatus
 from llm_web_agent.engine.run_context import RunContext
-from llm_web_agent.engine.target_resolver import TargetResolver, ResolvedTarget, ResolutionLayer
+from llm_web_agent.engine.target_resolver import TargetResolver, ResolvedTarget, ResolutionStrategy
 from llm_web_agent.engine.state_manager import StateManager
+
+# Backwards compat alias
+ResolutionLayer = ResolutionStrategy
 
 
 # =============================================================================
@@ -125,16 +128,17 @@ class MockResolver:
         target: str,
         intent: str = None,
         dom: Any = None,
+        wait_timeout: int = 3000,
     ) -> ResolvedTarget:
         if self._always_succeed:
             return ResolvedTarget(
                 selector=f"#{target.replace(' ', '-')}",
-                layer=ResolutionLayer.EXACT,
+                strategy=ResolutionStrategy.DIRECT,
                 confidence=1.0,
             )
         return ResolvedTarget(
             selector="",
-            layer=ResolutionLayer.FAILED,
+            strategy=ResolutionStrategy.FAILED,
             confidence=0,
         )
 
