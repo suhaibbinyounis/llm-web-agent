@@ -906,17 +906,28 @@ class TargetResolver:
         return " ".join(words) if words else target.lower()
     
     async def _try_fuzzy_search(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
-        """Search all interactive elements with fuzzy matching."""
+        """
+        Search all interactive elements with enhanced fuzzy matching.
+        
+        Matching strategies (in order of score):
+        1. Exact match (1.0)
+        2. Contains target (0.9)
+        3. Target contains text (0.8)
+        4. Word overlap (0.5-0.85 based on overlap %)
+        5. Levenshtein similarity (0.5-0.75)
+        """
         
         try:
-            selector = "button, a, input, select, textarea, [role='button'], [role='link'], [onclick]"
+            selector = "button, a, input, select, textarea, [role='button'], [role='link'], [onclick], .MuiButton-root, .MuiButtonBase-root"
             elements = await page.query_selector_all(selector)
             
-            target_lower = target.lower()
+            target_lower = target.lower().strip()
+            target_words = set(target_lower.split())
             core = self._extract_core_text(target).lower()
             
             best_match = None
             best_score = 0
+            best_text = ""
             
             for element in elements:
                 try:
@@ -927,20 +938,23 @@ class TargetResolver:
                     text = (await element.text_content() or "").lower().strip()
                     aria = (await element.get_attribute("aria-label") or "").lower()
                     placeholder = (await element.get_attribute("placeholder") or "").lower()
+                    title = (await element.get_attribute("title") or "").lower()
                     
-                    # Calculate score
+                    # Calculate best score across all attributes
                     score = 0
-                    for check in [text, aria, placeholder]:
-                        if core == check:
-                            score = max(score, 1.0)
-                        elif core in check:
-                            score = max(score, 0.85)
-                        elif check in core and len(check) > 2:
-                            score = max(score, 0.7)
+                    matched_text = ""
+                    for check in [text, aria, placeholder, title]:
+                        if not check:
+                            continue
+                        s = self._fuzzy_score(core, check, target_words)
+                        if s > score:
+                            score = s
+                            matched_text = check
                     
                     if score > best_score:
                         best_score = score
                         best_match = element
+                        best_text = matched_text
                         
                 except Exception:
                     continue
@@ -948,6 +962,7 @@ class TargetResolver:
             if best_match and best_score >= self._fuzzy_threshold:
                 selector = await self._build_element_selector(best_match)
                 if selector:
+                    logger.debug(f"Fuzzy matched '{target}' → '{best_text}' (score={best_score:.2f})")
                     return ResolvedTarget(
                         selector=selector,
                         element=best_match,
@@ -959,6 +974,80 @@ class TargetResolver:
             logger.debug(f"Fuzzy search error: {e}")
         
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    def _fuzzy_score(self, target: str, text: str, target_words: set) -> float:
+        """
+        Calculate fuzzy similarity score between target and text.
+        
+        Returns score 0.0 to 1.0.
+        """
+        if not text or not target:
+            return 0.0
+        
+        # Exact match
+        if target == text:
+            return 1.0
+        
+        # Target contained in text (e.g., "start" in "Get started")
+        if target in text:
+            return 0.9
+        
+        # Text contained in target (e.g., "Get" in "Get started button")
+        if text in target and len(text) > 2:
+            return 0.8
+        
+        # Word overlap (e.g., "Get started" vs "Getting started" share "started")
+        text_words = set(text.split())
+        if target_words and text_words:
+            # Check for common root words (start → started, starting)
+            overlap = 0
+            for tw in target_words:
+                for ew in text_words:
+                    if tw in ew or ew in tw:
+                        overlap += 1
+                        break
+                    # Common prefix (3+ chars)
+                    if len(tw) >= 3 and len(ew) >= 3 and tw[:3] == ew[:3]:
+                        overlap += 0.7
+                        break
+            
+            if overlap > 0:
+                ratio = overlap / max(len(target_words), len(text_words))
+                return 0.5 + (ratio * 0.35)  # 0.5 to 0.85
+        
+        # Levenshtein-like ratio for short strings
+        if len(target) <= 20 and len(text) <= 30:
+            ratio = self._simple_ratio(target, text)
+            if ratio > 0.6:
+                return 0.5 + (ratio * 0.25)  # 0.5 to 0.75
+        
+        return 0.0
+    
+    def _simple_ratio(self, s1: str, s2: str) -> float:
+        """Simple string similarity ratio without external deps."""
+        if s1 == s2:
+            return 1.0
+        
+        # Use longest common subsequence ratio
+        len1, len2 = len(s1), len(s2)
+        if len1 == 0 or len2 == 0:
+            return 0.0
+        
+        # Quick check: if one is much longer, low similarity
+        if max(len1, len2) / min(len1, len2) > 3:
+            return 0.0
+        
+        # Count matching chars in order
+        matches = 0
+        j = 0
+        for c in s1:
+            for k in range(j, len2):
+                if s2[k] == c:
+                    matches += 1
+                    j = k + 1
+                    break
+        
+        return (2.0 * matches) / (len1 + len2)
     
     async def _is_visible(self, element: "IElement") -> bool:
         """Check if element is visible."""
