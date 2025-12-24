@@ -38,6 +38,7 @@ class StepIntent(Enum):
     PRESS_KEY = "press_key"
     SCREENSHOT = "screenshot"
     CUSTOM = "custom"
+    NOOP = "noop"  # No operation - instruction to be skipped
 
 
 @dataclass

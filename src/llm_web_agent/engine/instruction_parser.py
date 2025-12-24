@@ -53,8 +53,18 @@ class InstructionParser:
     # Pattern rules: (regex, intent, groups) 
     # Groups: 1=target, 2=value, or custom mapping
     PATTERNS: List[Tuple[re.Pattern, StepIntent, Dict[str, int]]] = [
-        # Navigation
-        (re.compile(r'^(?:go to|open|visit|navigate to)\s+(.+)$', re.I), 
+        # NO-OP patterns (actions that don't need execution - browser is already open)
+        (re.compile(r'^(?:open|launch|start)(?:\s+the)?(?:\s+web)?\s+browser\.?$', re.I),
+         StepIntent.NOOP, {}),
+        
+        (re.compile(r'^(?:\d+\.?\s*)?(?:open|launch|start)(?:\s+the)?(?:\s+web)?\s+browser\.?$', re.I),
+         StepIntent.NOOP, {}),
+        
+        (re.compile(r'^(?:\d+\.?\s*)?(?:open|close)(?:\s+the)?\s+(?:app(?:lication)?|program)\.?$', re.I),
+         StepIntent.NOOP, {}),
+        
+        # Navigation (must come AFTER noop patterns)
+        (re.compile(r'^(?:\d+\.?\s*)?(?:go to|open|visit|navigate to)(?:\s+the)?\s+(?:website\s+)?(.+?)\.?$', re.I), 
          StepIntent.NAVIGATE, {"target": 1}),
         
         # Search
@@ -316,6 +326,11 @@ class InstructionParser:
         
         for clause in clauses:
             if clause.intent is None:
+                continue
+            
+            # Skip NOOP steps (like "open browser" when browser is already open)
+            if clause.intent == StepIntent.NOOP:
+                logger.debug(f"Skipping no-op instruction: {clause.text}")
                 continue
             
             # Create step
