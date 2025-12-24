@@ -46,10 +46,10 @@ graph TD
     J -->|Scoring| K["Fuzzy Search"]
     J -->|Async Match| L["Dynamic Wait"]
     
-    style B fill:#9f9,stroke:#333
-    style C fill:#9f9,stroke:#333
-    style F fill:#bbf,stroke:#333
-    style J fill:#f9f,stroke:#333
+    style B fill:#2e7d32,color:#fff
+    style C fill:#2e7d32,color:#fff
+    style F fill:#1565c0,color:#fff
+    style J fill:#7b1fa2,color:#fff
 ```
 
 **Key Innovations:**
