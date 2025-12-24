@@ -28,29 +28,36 @@ This project explores a critical question in AI-driven browser automation:
 
 ## 🎯 Key Research Contributions
 
-### 1. Intelligent Resolution Architecture (v2)
+### 1. Intelligent Resolution Architecture (v3 - DOMMap)
 
 We implement a sophisticated **multi-layered resolution engine** that combines speed, adaptability, and robustness:
 
 ```mermaid
 graph TD
-    A["Request: 'Click Submit'"] --> B{"Layer 1: Fast-Path"}
-    B -->|Direct/Index| C("O1 Resolution")
-    B -->|Miss| D{"Layer 2: Parallel Race"}
-    D -->|Simultaneous| E["Text First"]
-    D -->|Simultaneous| F["Playwright"]
-    D -->|Simultaneous| G["Smart Selectors"]
-    D -->|All Fail| H{"Layer 3: Fallback"}
-    H -->|Scoring| I["Fuzzy Search"]
-    H -->|Async Match| J["Dynamic Wait"]
+    A["Request: 'Click Submit'"] --> B{"Layer 0: DOMMap"}
+    B -->|O(1) Multi-Index| C["Fingerprint + Selector"]
+    B -->|Miss| D{"Layer 1: Direct/Index"}
+    D -->|Direct Selector| E["CSS/XPath Match"]
+    D -->|Miss| F{"Layer 2: Parallel Race"}
+    F -->|Simultaneous| G["Text First"]
+    F -->|Simultaneous| H["Playwright"]
+    F -->|Simultaneous| I["Smart Selectors"]
+    F -->|All Fail| J{"Layer 3: Fallback"}
+    J -->|Scoring| K["Fuzzy Search"]
+    J -->|Async Match| L["Dynamic Wait"]
     
+    style B fill:#9f9,stroke:#333
     style C fill:#9f9,stroke:#333
-    style D fill:#bbf,stroke:#333
-    style H fill:#f9f,stroke:#333
+    style F fill:#bbf,stroke:#333
+    style J fill:#f9f,stroke:#333
 ```
 
 **Key Innovations:**
 
+*   **DOMMap Real-Time Registry**: Persistent multi-index map (text, aria-label, role, data-testid, placeholder, fingerprint) with O(1) lookups. Built once per page, automatically refreshes on stale detection.
+*   **Element Fingerprinting**: Stable 12-character hashes for elements that survive page refreshes and CSS-in-JS class changes. Uses multi-signal approach (text, aria, position, stable classes).
+*   **Framework Hints**: Pattern library for MUI, Ant Design, Chakra, React-Select, Bootstrap, and Headless UI components.
+*   **Spatial Grid Index**: Grid-based spatial index for relational queries like *"Click Submit near Email"*.
 *   **O(1) Text Indexing**: Builds an inverted index of the page for instant lookups, treating the DOM like a database.
 *   **Parallel Execution**: Races 3 different strategies simultaneously (Text, Playwright, Smart) instead of trying them sequentially.
 *   **Spatial Resolution**: Understands layout queries like *"Click Submit near Email"* using the spatial index.
@@ -300,7 +307,11 @@ src/llm_web_agent/
 ├── engine/           # Core execution engine
 │   ├── engine.py          # Main orchestrator
 │   ├── instruction_parser.py  # NL → structured steps
-│   ├── target_resolver.py     # 6-layer element resolution
+│   ├── target_resolver.py     # 7-layer element resolution
+│   ├── dom_map.py             # Real-time DOM registry (O(1) lookups)
+│   ├── fingerprint.py         # Stable element identification
+│   ├── framework_hints.py     # UI framework patterns (MUI, Ant, etc.)
+│   ├── text_index.py          # Inverted text index
 │   ├── batch_executor.py      # Optimized action execution
 │   └── state_manager.py       # Page state tracking
 ├── browsers/         # Browser adapters (Playwright, Selenium)

@@ -286,6 +286,7 @@ class TargetResolver:
     Multi-strategy element resolution.
     
     Tries multiple approaches to find elements:
+    0. DOMMap lookup (O(1) real-time registry) - NEW
     1. Direct selector (if target looks like CSS/XPath)
     2. Text-first search (human-like: find text, climb to clickable)
     3. Playwright text selector
@@ -294,10 +295,11 @@ class TargetResolver:
     6. Dynamic element waiting (for dropdowns, modals)
     
     Includes:
+    - DOMMap for O(1) multi-index lookups (text, aria, role, testid, etc.)
     - Parallel strategy execution for speed
     - Strategy success tracking for adaptive ordering
     - Exponential backoff for dynamic elements
-    - Optional text indexing for O(1) lookups
+    - Fingerprint-based stable element identification
     """
     
     def __init__(
@@ -306,13 +308,16 @@ class TargetResolver:
         fuzzy_threshold: float = 0.5,
         enable_tracking: bool = True,
         enable_indexing: bool = True,
+        enable_dom_map: bool = True,
     ):
         self._llm = llm_provider
         self._fuzzy_threshold = fuzzy_threshold
         self._enable_tracking = enable_tracking
         self._enable_indexing = enable_indexing
+        self._enable_dom_map = enable_dom_map
         self._tracker = None
         self._text_index = None
+        self._dom_map = None
         
         if enable_tracking:
             try:
@@ -327,6 +332,13 @@ class TargetResolver:
                 self._text_index = TextIndex()
             except ImportError:
                 logger.debug("Text index not available")
+        
+        if enable_dom_map:
+            try:
+                from llm_web_agent.engine.dom_map import DOMMap
+                self._dom_map = DOMMap()
+            except ImportError:
+                logger.debug("DOMMap not available")
     
     async def resolve(
         self,
@@ -356,14 +368,23 @@ class TargetResolver:
         start_time = time.time()
         
         # Check for spatial reference (e.g., "Submit near Email")
-        # Only if indexing is enabled
-        if self._text_index:
-            spatial_match = re.search(r'(.+?)\s+(?:near|next to|close to|beside)\s+(.+)', target, re.I)
-            if spatial_match:
-                target_text = spatial_match.group(1).strip()
-                ref_text = spatial_match.group(2).strip()
-                
-                # Try spatial resolution
+        # Use DOMMap for spatial queries if available
+        spatial_match = re.search(r'(.+?)\s+(?:near|next to|close to|beside)\s+(.+)', target, re.I)
+        if spatial_match:
+            target_text = spatial_match.group(1).strip()
+            ref_text = spatial_match.group(2).strip()
+            
+            # Try DOMMap spatial first (more accurate)
+            if self._dom_map:
+                result = await self._try_dom_map_spatial(page, target_text, ref_text)
+                if result.is_resolved:
+                    self._record_outcome(domain, "dom_map_spatial", True, start_time)
+                    elapsed = (time.time() - start_time) * 1000
+                    logger.info(f"DOMMAP_SPATIAL found '{target_text}' near '{ref_text}' with: {result.selector} ({elapsed:.0f}ms)")
+                    return result
+            
+            # Fallback to text_index spatial
+            if self._text_index:
                 result = await self._try_spatial_match(page, target_text, ref_text)
                 if result.is_resolved:
                     self._record_outcome(domain, "spatial", True, start_time)
@@ -379,6 +400,15 @@ class TargetResolver:
             except Exception:
                 pass
         
+        # Strategy 0: DOMMap lookup (O(1) real-time registry) - FASTEST
+        if self._dom_map:
+            result = await self._try_dom_map(page, target, intent)
+            if result.is_resolved:
+                self._record_outcome(domain, "dom_map", True, start_time)
+                elapsed = (time.time() - start_time) * 1000
+                logger.info(f"DOMMAP found '{target}' with: {result.selector} ({elapsed:.0f}ms)")
+                return result
+        
         # Strategy 1: Direct selector (always first, very fast)
         if self._is_selector(target):
             result = await self._try_direct_selector(page, target)
@@ -386,7 +416,7 @@ class TargetResolver:
                 self._record_outcome(domain, "direct", True, start_time)
                 return result
         
-        # Strategy 1.5: Text index fast-path (O(1) lookup)
+        # Strategy 1.5: Text index fast-path (O(1) lookup) - legacy fallback
         if self._text_index:
             result = await self._try_text_index(page, target, intent)
             if result.is_resolved:
@@ -574,6 +604,90 @@ class TargetResolver:
                 )
         except Exception:
             pass
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_dom_map(
+        self,
+        page: "IPage",
+        target: str,
+        intent: Optional[str] = None,
+    ) -> ResolvedTarget:
+        """
+        Try to resolve using DOMMap (O(1) multi-index lookup).
+        
+        This is the fastest resolution strategy, using pre-built indexes
+        for text, aria-label, data-testid, role, and placeholder.
+        """
+        if not self._dom_map:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Build or refresh DOMMap if needed
+        if not self._dom_map.is_for_url(page.url) or self._dom_map.is_stale():
+            await self._dom_map.build(page)
+        
+        # Use DOMMap's universal find method
+        elements = self._dom_map.find(target, intent=intent)
+        
+        if not elements:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Verify candidates and return first visible match
+        for dom_elem in elements:
+            try:
+                # Try each selector in priority order
+                for selector in dom_elem.selectors:
+                    element = await page.query_selector(selector)
+                    if element and await self._is_visible(element):
+                        return ResolvedTarget(
+                            selector=selector,
+                            element=element,
+                            strategy=ResolutionStrategy.DIRECT,  # Effectively a direct hit
+                            confidence=0.98,
+                            alternatives=[s for s in dom_elem.selectors if s != selector][:3],
+                        )
+            except Exception:
+                continue
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_dom_map_spatial(
+        self,
+        page: "IPage",
+        target_text: str,
+        reference_text: str,
+    ) -> ResolvedTarget:
+        """
+        Resolve target using DOMMap spatial index.
+        
+        Finds element with target_text that is closest to reference_text element.
+        """
+        if not self._dom_map:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Build or refresh DOMMap if needed
+        if not self._dom_map.is_for_url(page.url) or self._dom_map.is_stale():
+            await self._dom_map.build(page)
+        
+        # Use spatial query
+        match = self._dom_map.find_near(target_text, reference_text)
+        
+        if not match:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Verify the match
+        for selector in match.selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element and await self._is_visible(element):
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        strategy=ResolutionStrategy.SMART,  # Spatial is smart
+                        confidence=0.90,
+                    )
+            except Exception:
+                continue
+        
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     async def _try_text_index(
