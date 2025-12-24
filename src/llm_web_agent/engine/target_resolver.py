@@ -1,11 +1,12 @@
 """
-Target Resolver - Fast, reliable element resolution.
+Target Resolver - Multi-Strategy Element Resolution.
 
-Simplified approach that works:
-1. Try direct selector first
-2. Try smart text-based selectors
-3. Try common patterns
-4. Skip LLM - too slow, use simpler heuristics
+Strategies (tried in order):
+1. DIRECT - If target looks like a selector, use it
+2. TEXT_FIRST - Find text on page, climb to clickable parent (human-like)
+3. PLAYWRIGHT_TEXT - Use Playwright's built-in text= selector
+4. SMART_SELECTORS - Try various selector patterns
+5. INTERACTIVE_SEARCH - Score all visible interactive elements
 """
 
 from dataclasses import dataclass, field
@@ -21,11 +22,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ResolutionLayer(Enum):
-    """Which layer resolved the target."""
-    EXACT = "exact"
-    TEXT = "text"
-    SMART = "smart"
+class ResolutionStrategy(Enum):
+    """Which strategy resolved the target."""
+    DIRECT = "direct"           # Direct CSS selector
+    TEXT_FIRST = "text_first"   # Human-like text search
+    PLAYWRIGHT = "playwright"   # Playwright text= selector
+    SMART = "smart"             # Pattern-based selectors
+    FUZZY = "fuzzy"             # Interactive element search
     FAILED = "failed"
 
 
@@ -34,30 +37,210 @@ class ResolvedTarget:
     """A resolved target element."""
     selector: str
     element: Optional["IElement"] = None
-    layer: ResolutionLayer = ResolutionLayer.EXACT
+    strategy: ResolutionStrategy = ResolutionStrategy.DIRECT
     confidence: float = 1.0
     alternatives: List[str] = field(default_factory=list)
     
+    # Backwards compatibility
+    @property
+    def layer(self):
+        return self.strategy
+    
     @property
     def is_resolved(self) -> bool:
-        return self.layer != ResolutionLayer.FAILED and bool(self.selector)
+        return self.strategy != ResolutionStrategy.FAILED and bool(self.selector)
+
+
+# JavaScript for text-first element finding
+TEXT_FIRST_JS = '''
+(searchText) => {
+    const results = [];
+    searchText = searchText.toLowerCase().trim();
+    
+    // Helper: Check if element is visible
+    function isVisible(el) {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none') return false;
+        if (style.visibility === 'hidden') return false;
+        if (style.opacity === '0') return false;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+        if (rect.top > window.innerHeight || rect.bottom < 0) return false;
+        if (rect.left > window.innerWidth || rect.right < 0) return false;
+        return true;
+    }
+    
+    // Helper: Check if element is truly clickable (semantic elements only)
+    function isClickable(el) {
+        if (!el) return false;
+        const tag = el.tagName.toLowerCase();
+        // Priority: actual clickable elements
+        if (['a', 'button'].includes(tag)) return true;
+        if (tag === 'input' && ['submit', 'button', 'reset'].includes(el.type)) return true;
+        if (el.getAttribute('role') === 'button') return true;
+        if (el.getAttribute('role') === 'link') return true;
+        if (el.onclick) return true;
+        return false;
+    }
+    
+    // Check if probably clickable (includes cursor:pointer)
+    function isProbablyClickable(el) {
+        if (isClickable(el)) return true;
+        if (el.getAttribute('tabindex') !== null) return true;
+        const style = window.getComputedStyle(el);
+        if (style.cursor === 'pointer') return true;
+        return false;
+    }
+    
+    // Helper: Find clickable ancestor - prioritize <a> and <button>
+    function findClickableAncestor(el) {
+        let current = el;
+        let fallback = null;
+        
+        while (current && current !== document.body) {
+            if (isClickable(current) && isVisible(current)) {
+                return current;  // Found a true clickable
+            }
+            // Save first "probably clickable" as fallback
+            if (!fallback && isProbablyClickable(current) && isVisible(current)) {
+                fallback = current;
+            }
+            current = current.parentElement;
+        }
+        return fallback;  // Return fallback if no true clickable found
+    }
+    
+    // Helper: Build unique selector
+    function buildSelector(el) {
+        if (el.id) return '#' + CSS.escape(el.id);
+        
+        // Try data-testid
+        const testId = el.getAttribute('data-testid');
+        if (testId) return `[data-testid="${testId}"]`;
+        
+        // Try unique class combo
+        if (el.className && typeof el.className === 'string') {
+            const classes = el.className.split(' ').filter(c => c.length > 0);
+            if (classes.length > 0) {
+                const selector = el.tagName.toLowerCase() + '.' + classes.slice(0, 2).join('.');
+                if (document.querySelectorAll(selector).length === 1) {
+                    return selector;
+                }
+            }
+        }
+        
+        // Use nth-child path
+        function getPath(el) {
+            if (el.id) return '#' + CSS.escape(el.id);
+            if (!el.parentElement) return el.tagName.toLowerCase();
+            const siblings = Array.from(el.parentElement.children);
+            const index = siblings.indexOf(el) + 1;
+            return getPath(el.parentElement) + ' > ' + el.tagName.toLowerCase() + ':nth-child(' + index + ')';
+        }
+        return getPath(el);
+    }
+    
+    // Calculate match score
+    function scoreMatch(text, search) {
+        text = text.toLowerCase().trim();
+        if (text === search) return 1.0;
+        if (text.includes(search)) return 0.9;
+        if (search.includes(text) && text.length > 2) return 0.8;
+        
+        // Word matching
+        const searchWords = search.split(/\s+/);
+        const textWords = text.split(/\s+/);
+        const matchedWords = searchWords.filter(w => textWords.some(tw => tw.includes(w)));
+        if (matchedWords.length === searchWords.length) return 0.85;
+        if (matchedWords.length > 0) return 0.5 + (matchedWords.length / searchWords.length) * 0.3;
+        
+        return 0;
+    }
+    
+    // Walk all text nodes
+    const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+    
+    const seen = new Set();
+    
+    while (walker.nextNode()) {
+        const textNode = walker.currentNode;
+        const text = textNode.textContent.trim();
+        if (!text) continue;
+        
+        const score = scoreMatch(text, searchText);
+        if (score >= 0.5) {
+            // Find clickable parent
+            const clickable = findClickableAncestor(textNode.parentElement);
+            if (clickable && !seen.has(clickable)) {
+                seen.add(clickable);
+                const selector = buildSelector(clickable);
+                results.push({
+                    selector: selector,
+                    text: text,
+                    score: score,
+                    tag: clickable.tagName.toLowerCase()
+                });
+            }
+        }
+    }
+    
+    // Also check aria-labels and titles
+    document.querySelectorAll('[aria-label], [title], [placeholder]').forEach(el => {
+        if (seen.has(el)) return;
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        const title = (el.getAttribute('title') || '').toLowerCase();
+        const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
+        
+        const score = Math.max(
+            scoreMatch(ariaLabel, searchText),
+            scoreMatch(title, searchText),
+            scoreMatch(placeholder, searchText)
+        );
+        
+        if (score >= 0.5 && isVisible(el)) {
+            const clickable = isClickable(el) ? el : findClickableAncestor(el);
+            if (clickable && !seen.has(clickable)) {
+                seen.add(clickable);
+                results.push({
+                    selector: buildSelector(clickable),
+                    text: ariaLabel || title || placeholder,
+                    score: score,
+                    tag: clickable.tagName.toLowerCase()
+                });
+            }
+        }
+    });
+    
+    // Sort by score descending
+    results.sort((a, b) => b.score - a.score);
+    
+    return results.slice(0, 5);  // Return top 5 matches
+}
+'''
 
 
 class TargetResolver:
     """
-    Fast element resolution.
+    Multi-strategy element resolution.
     
-    Priority order:
-    1. Direct CSS selectors
-    2. Text-based Playwright selectors  
-    3. Role + text combinations
-    4. Common UI patterns
+    Tries multiple approaches to find elements:
+    1. Direct selector (if target looks like CSS/XPath)
+    2. Text-first search (human-like: find text, climb to clickable)
+    3. Playwright text selector
+    4. Smart pattern selectors
+    5. Fuzzy interactive element search
     """
     
     def __init__(
         self,
         llm_provider: Optional["ILLMProvider"] = None,
-        fuzzy_threshold: float = 0.6,
+        fuzzy_threshold: float = 0.5,
     ):
         self._llm = llm_provider
         self._fuzzy_threshold = fuzzy_threshold
@@ -69,61 +252,255 @@ class TargetResolver:
         intent: Optional[str] = None,
         dom: Optional[Any] = None,
     ) -> ResolvedTarget:
-        """Resolve target to selector."""
+        """
+        Resolve target to selector using multiple strategies.
+        """
         target = target.strip()
         
         if not target:
-            return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED)
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
         
-        # 1. If it's already a selector, use it
+        # Strategy 1: Direct selector
         if self._is_selector(target):
-            element = await self._try_selector(page, target)
-            if element:
-                return ResolvedTarget(
-                    selector=target,
-                    element=element,
-                    layer=ResolutionLayer.EXACT,
-                )
+            result = await self._try_direct_selector(page, target)
+            if result.is_resolved:
+                return result
         
-        # 2. Build smart selectors based on target text and intent
-        selectors = self._build_smart_selectors(target, intent)
-        
-        for selector in selectors:
-            element = await self._try_selector(page, selector)
-            if element:
-                is_visible = await self._is_visible(element)
-                if is_visible:
-                    logger.debug(f"Found '{target}' with: {selector}")
-                    return ResolvedTarget(
-                        selector=selector,
-                        element=element,
-                        layer=ResolutionLayer.SMART,
-                        confidence=0.9,
-                    )
-        
-        # 3. Fallback: search all visible interactive elements
-        result = await self._search_interactive_elements(page, target, intent)
+        # Strategy 2: Text-first (human-like) - NEW!
+        result = await self._try_text_first(page, target, intent)
         if result.is_resolved:
+            logger.info(f"TEXT_FIRST found '{target}' with: {result.selector}")
+            return result
+        
+        # Strategy 3: Playwright text selector
+        result = await self._try_playwright_text(page, target, intent)
+        if result.is_resolved:
+            logger.info(f"PLAYWRIGHT found '{target}' with: {result.selector}")
+            return result
+        
+        # Strategy 4: Smart selectors based on intent
+        result = await self._try_smart_selectors(page, target, intent)
+        if result.is_resolved:
+            logger.info(f"SMART found '{target}' with: {result.selector}")
+            return result
+        
+        # Strategy 5: Fuzzy search all interactive elements
+        result = await self._try_fuzzy_search(page, target, intent)
+        if result.is_resolved:
+            logger.info(f"FUZZY found '{target}' with: {result.selector}")
             return result
         
         logger.warning(f"Could not resolve: {target}")
-        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED)
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     def _is_selector(self, target: str) -> bool:
         """Check if target looks like a CSS selector."""
         return (
             target.startswith(("#", ".", "[", "//")) or
             "::" in target or
-            "=" in target or
-            ">" in target
+            ">" in target or
+            ("]" in target and "[" in target)
         )
     
-    async def _try_selector(self, page: "IPage", selector: str) -> Optional["IElement"]:
-        """Try a selector safely."""
+    async def _try_direct_selector(self, page: "IPage", selector: str) -> ResolvedTarget:
+        """Try using target directly as a selector."""
         try:
-            return await page.query_selector(selector)
+            element = await page.query_selector(selector)
+            if element and await self._is_visible(element):
+                return ResolvedTarget(
+                    selector=selector,
+                    element=element,
+                    strategy=ResolutionStrategy.DIRECT,
+                    confidence=1.0,
+                )
         except Exception:
-            return None
+            pass
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_text_first(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """
+        Human-like text search.
+        
+        1. Execute JS to find all text matching target
+        2. Climb to clickable parent
+        3. Return best match
+        """
+        try:
+            # Execute the text-first JavaScript
+            results = await page.evaluate(TEXT_FIRST_JS, target)
+            
+            if results and len(results) > 0:
+                best = results[0]
+                
+                # For input intents, prefer input elements
+                if intent in ("fill", "type"):
+                    for r in results:
+                        if r.get("tag") in ("input", "textarea", "select"):
+                            best = r
+                            break
+                
+                # Verify the element exists
+                element = await page.query_selector(best["selector"])
+                if element:
+                    return ResolvedTarget(
+                        selector=best["selector"],
+                        element=element,
+                        strategy=ResolutionStrategy.TEXT_FIRST,
+                        confidence=best["score"],
+                        alternatives=[r["selector"] for r in results[1:]],
+                    )
+        except Exception as e:
+            logger.debug(f"Text-first search error: {e}")
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_playwright_text(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """Use Playwright's built-in text matching."""
+        
+        # For fill/type, skip text selectors (need input elements)
+        if intent in ("fill", "type"):
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Try various text patterns (most specific first)
+        selectors = [
+            f'text="{target}"',       # Exact match
+            f'text={target}',          # Case-insensitive substring
+        ]
+        
+        for selector in selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element and await self._is_visible(element):
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        strategy=ResolutionStrategy.PLAYWRIGHT,
+                        confidence=0.85,
+                    )
+            except Exception:
+                continue
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_smart_selectors(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """Try smart selectors based on intent."""
+        
+        selectors = self._build_smart_selectors(target, intent)
+        
+        for selector in selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element and await self._is_visible(element):
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        strategy=ResolutionStrategy.SMART,
+                        confidence=0.8,
+                    )
+            except Exception:
+                continue
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    def _build_smart_selectors(self, target: str, intent: Optional[str]) -> List[str]:
+        """Build smart selectors based on target and intent."""
+        selectors = []
+        clean = target.lower().strip()
+        core = self._extract_core_text(target)
+        
+        # For input actions, prioritize input elements
+        if intent in ("fill", "type"):
+            selectors.extend([
+                f'input[placeholder*="{core}" i]',
+                f'input[aria-label*="{core}" i]',
+                f'input[name*="{core}" i]',
+                f'textarea[placeholder*="{core}" i]',
+                'input[type="search"]',
+                'input[type="text"]',
+                '#searchInput',
+                'input[name="q"]',
+                '[role="searchbox"]',
+            ])
+        
+        # For click actions
+        if intent in ("click", None):
+            selectors.extend([
+                f'button:has-text("{core}")',
+                f'a:has-text("{core}")',
+                f'[role="button"]:has-text("{core}")',
+                f'[role="link"]:has-text("{core}")',
+            ])
+        
+        # Attribute-based
+        selectors.extend([
+            f'[aria-label*="{core}" i]',
+            f'[title*="{core}" i]',
+            f'#{core.replace(" ", "-")}',
+            f'#{core.replace(" ", "_")}',
+        ])
+        
+        return selectors
+    
+    def _extract_core_text(self, target: str) -> str:
+        """Extract core text, removing noise words."""
+        noise = {"the", "a", "an", "button", "link", "input", "field", "click", "on", "in"}
+        words = [w for w in target.lower().split() if w not in noise]
+        return " ".join(words) if words else target.lower()
+    
+    async def _try_fuzzy_search(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """Search all interactive elements with fuzzy matching."""
+        
+        try:
+            selector = "button, a, input, select, textarea, [role='button'], [role='link'], [onclick]"
+            elements = await page.query_selector_all(selector)
+            
+            target_lower = target.lower()
+            core = self._extract_core_text(target).lower()
+            
+            best_match = None
+            best_score = 0
+            
+            for element in elements:
+                try:
+                    if not await self._is_visible(element):
+                        continue
+                    
+                    # Get element info
+                    text = (await element.text_content() or "").lower().strip()
+                    aria = (await element.get_attribute("aria-label") or "").lower()
+                    placeholder = (await element.get_attribute("placeholder") or "").lower()
+                    
+                    # Calculate score
+                    score = 0
+                    for check in [text, aria, placeholder]:
+                        if core == check:
+                            score = max(score, 1.0)
+                        elif core in check:
+                            score = max(score, 0.85)
+                        elif check in core and len(check) > 2:
+                            score = max(score, 0.7)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_match = element
+                        
+                except Exception:
+                    continue
+            
+            if best_match and best_score >= self._fuzzy_threshold:
+                selector = await self._build_element_selector(best_match)
+                if selector:
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=best_match,
+                        strategy=ResolutionStrategy.FUZZY,
+                        confidence=best_score,
+                    )
+                    
+        except Exception as e:
+            logger.debug(f"Fuzzy search error: {e}")
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     async def _is_visible(self, element: "IElement") -> bool:
         """Check if element is visible."""
@@ -132,218 +509,10 @@ class TargetResolver:
         except Exception:
             return True  # Assume visible if check fails
     
-    def _build_smart_selectors(self, target: str, intent: Optional[str]) -> List[str]:
-        """Build smart selectors for the target."""
-        selectors = []
-        clean_target = target.lower().strip()
-        
-        # Extract the core text (remove common words)
-        core_text = self._extract_core_text(target)
-        
-        # Determine element type from intent and keywords
-        is_button = intent in ("click", "submit") or any(
-            w in clean_target for w in ["button", "btn", "submit", "click"]
-        )
-        is_input = intent in ("fill", "type") or any(
-            w in clean_target for w in ["input", "field", "textbox", "box"]
-        )
-        is_link = any(w in clean_target for w in ["link"])
-        is_search = "search" in clean_target
-        
-        # IMPORTANT: For fill/type intents, prioritize input elements FIRST
-        if intent in ("fill", "type"):
-            # Common search/input patterns first
-            selectors.extend([
-                'input[type="search"]',
-                'input[type="text"]',
-                '#searchInput',
-                '#search-input',
-                '#search',
-                'input[name="q"]',
-                'input[name="query"]',
-                'input[name="search"]',
-                '[role="searchbox"]',
-                'textarea',
-            ])
-            
-            # Then try attribute-based input selectors
-            selectors.extend([
-                f'input[placeholder*="{core_text}" i]',
-                f'input[name*="{core_text}" i]',
-                f'input[aria-label*="{core_text}" i]',
-                f'textarea[placeholder*="{core_text}" i]',
-                f'input[id*="{core_text}" i]',
-            ])
-            
-            # Try ID patterns
-            selectors.extend([
-                f'#{core_text.replace(" ", "-")}',
-                f'#{core_text.replace(" ", "_")}',
-                f'input#{core_text.replace(" ", "-")}',
-                f'input#{core_text.replace(" ", "_")}',
-            ])
-        
-        # Standard text selectors (for clicks/links)
-        if intent not in ("fill", "type"):
-            # Playwright text selectors (most reliable for clicks)
-            selectors.extend([
-                f'text="{core_text}"',
-                f"text={core_text}",
-                f'text="{target}"',
-            ])
-            
-            # Role-based with text (very reliable for buttons/links)
-            if is_button:
-                selectors.extend([
-                    f'button:has-text("{core_text}")',
-                    f'[role="button"]:has-text("{core_text}")',
-                    f'input[type="submit"]:has-text("{core_text}")',
-                    f'a:has-text("{core_text}")',
-                ])
-            
-            if is_link:
-                selectors.extend([
-                    f'a:has-text("{core_text}")',
-                    f'[role="link"]:has-text("{core_text}")',
-                ])
-        
-        # Search-specific patterns (always useful for search)
-        if is_search:
-            selectors.extend([
-                'input[type="search"]',
-                'input[name="q"]',
-                'input[name="query"]',
-                'input[name="search"]',
-                '#search',
-                '#searchInput',
-                '#search-input',
-                '[role="searchbox"]',
-                'input[placeholder*="search" i]',
-                'input[aria-label*="search" i]',
-            ])
-        
-        # Attribute selectors
-        selectors.extend([
-            f'[name="{core_text}"]',
-            f'[data-testid="{core_text}"]',
-            f'[aria-label*="{core_text}" i]',
-            f'[title*="{core_text}" i]',
-        ])
-        
-        # More permissive text matching (only for non-fill)
-        if intent not in ("fill", "type"):
-            selectors.extend([
-                f'*:has-text("{core_text}")',
-                f'button >> text="{core_text}"',
-                f'a >> text="{core_text}"',
-            ])
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_selectors = []
-        for s in selectors:
-            if s not in seen:
-                seen.add(s)
-                unique_selectors.append(s)
-        
-        return unique_selectors
-    
-    def _extract_core_text(self, target: str) -> str:
-        """Extract core text from target description."""
-        # Remove common descriptor words
-        noise_words = [
-            "the", "a", "an", "button", "link", "input", "field",
-            "textbox", "box", "element", "click", "on", "in", "at",
-            "top", "bottom", "left", "right", "first", "last"
-        ]
-        
-        words = target.lower().split()
-        filtered = [w for w in words if w not in noise_words]
-        
-        if filtered:
-            return " ".join(filtered)
-        return target
-    
-    async def _search_interactive_elements(
-        self,
-        page: "IPage",
-        target: str,
-        intent: Optional[str],
-    ) -> ResolvedTarget:
-        """Search through interactive elements for a match."""
-        
-        # Get all interactive elements
-        selector = "button, a, input, select, textarea, [role='button'], [role='link'], [onclick]"
-        
-        try:
-            elements = await page.query_selector_all(selector)
-            
-            target_lower = target.lower()
-            core_text = self._extract_core_text(target).lower()
-            
-            best_match = None
-            best_score = 0
-            
-            for element in elements:
-                # Skip hidden elements
-                try:
-                    if not await element.is_visible():
-                        continue
-                except:
-                    continue
-                
-                # Get element info
-                text = (await element.text_content() or "").lower().strip()
-                aria_label = (await element.get_attribute("aria-label") or "").lower()
-                placeholder = (await element.get_attribute("placeholder") or "").lower()
-                name = (await element.get_attribute("name") or "").lower()
-                id_attr = (await element.get_attribute("id") or "").lower()
-                
-                # Calculate match score
-                score = 0
-                
-                # Exact text match
-                if core_text == text:
-                    score = 1.0
-                elif core_text in text:
-                    score = 0.8
-                elif text in core_text and len(text) > 2:
-                    score = 0.7
-                
-                # Check attributes
-                if core_text in aria_label:
-                    score = max(score, 0.85)
-                if core_text in placeholder:
-                    score = max(score, 0.8)
-                if core_text in name:
-                    score = max(score, 0.75)
-                if core_text in id_attr:
-                    score = max(score, 0.75)
-                
-                if score > best_score:
-                    best_score = score
-                    best_match = element
-            
-            if best_match and best_score >= 0.6:
-                # Build selector for this element
-                selector = await self._build_element_selector(best_match)
-                logger.debug(f"Found '{target}' via search with score {best_score}: {selector}")
-                return ResolvedTarget(
-                    selector=selector,
-                    element=best_match,
-                    layer=ResolutionLayer.SMART,
-                    confidence=best_score,
-                )
-        
-        except Exception as e:
-            logger.debug(f"Search error: {e}")
-        
-        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED)
-    
     async def _build_element_selector(self, element: "IElement") -> str:
-        """Build a unique selector for an element."""
+        """Build unique selector for an element."""
         try:
-            # Try ID first
+            # Try ID
             id_attr = await element.get_attribute("id")
             if id_attr:
                 return f"#{id_attr}"
@@ -353,25 +522,19 @@ class TargetResolver:
             if testid:
                 return f'[data-testid="{testid}"]'
             
-            # Try name
-            name = await element.get_attribute("name")
-            if name:
-                return f'[name="{name}"]'
-            
             # Try text content
             text = await element.text_content()
             if text and len(text.strip()) < 50:
                 return f'text="{text.strip()}"'
             
-            # Fallback: use aria-label
+            # Try aria-label
             aria = await element.get_attribute("aria-label")
             if aria:
                 return f'[aria-label="{aria}"]'
-            
+                
         except Exception:
             pass
         
-        # Can't build a reliable selector
         return ""
     
     async def resolve_multiple(
