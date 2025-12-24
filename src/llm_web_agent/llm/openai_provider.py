@@ -1,105 +1,98 @@
 """
-OpenAI Provider - Implementation of ILLMProvider for OpenAI.
+OpenAI-compatible LLM Provider.
+
+Supports any OpenAI-compatible API including:
+- OpenAI
+- Azure OpenAI
+- Local servers (LM Studio, Ollama, etc.)
+- Custom gateways (like the Copilot Gateway)
 """
 
-import os
-from typing import Any, AsyncIterator, List, Optional
+import json
 import logging
+from dataclasses import dataclass
+from typing import Any, AsyncIterator, Dict, List, Optional
+
+import httpx
 
 from llm_web_agent.interfaces.llm import (
+    ILLMProvider,
     Message,
+    MessageRole,
     LLMResponse,
-    ToolDefinition,
     ToolCall,
+    ToolDefinition,
     Usage,
-)
-from llm_web_agent.llm.base import BaseLLMProvider
-from llm_web_agent.exceptions.llm import (
-    LLMConnectionError,
-    LLMAuthenticationError,
-    RateLimitError,
-    InvalidResponseError,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class OpenAIProvider(BaseLLMProvider):
+class OpenAIProvider(ILLMProvider):
     """
-    OpenAI LLM provider implementation.
+    OpenAI-compatible LLM provider.
     
-    Supports GPT-4, GPT-4 Turbo, GPT-4o, and other OpenAI models.
+    Works with any OpenAI-compatible API endpoint.
     
     Example:
-        >>> provider = OpenAIProvider(api_key="sk-...")
+        >>> provider = OpenAIProvider(
+        ...     base_url="http://127.0.0.1:3030",
+        ...     model="gpt-4.1"
+        ... )
         >>> response = await provider.complete([
-        ...     Message.system("You are a helpful assistant."),
         ...     Message.user("Hello!")
         ... ])
-        >>> print(response.content)
     """
     
     def __init__(
         self,
+        base_url: str = "http://127.0.0.1:3030",
         api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        base_url: Optional[str] = None,
-        timeout: int = 60,
+        model: str = "gpt-4.1",
+        timeout: float = 120.0,
     ):
         """
-        Initialize the OpenAI provider.
+        Initialize the provider.
         
         Args:
-            api_key: OpenAI API key (falls back to OPENAI_API_KEY env var)
-            model: Model to use (default: gpt-4o)
-            base_url: Custom API endpoint (for proxies/compatible APIs)
+            base_url: Base URL for the API (no /v1 suffix needed)
+            api_key: Optional API key
+            model: Default model to use
             timeout: Request timeout in seconds
         """
-        super().__init__(api_key, model, base_url, timeout)
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key or "not-needed"
+        self._model = model
+        self._timeout = timeout
         
-        # Resolve API key
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self._api_key:
-            logger.warning("No OpenAI API key provided. Set OPENAI_API_KEY or pass api_key.")
-        
-        self._client: Any = None
+        self._client = httpx.AsyncClient(
+            base_url=self._base_url,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=timeout,
+        )
     
     @property
     def name(self) -> str:
-        """Provider name."""
         return "openai"
     
     @property
     def default_model(self) -> str:
-        """Default model."""
-        return "gpt-4o"
+        return self._model
     
     @property
     def supports_vision(self) -> bool:
-        """OpenAI supports vision with GPT-4 Vision models."""
         return True
     
     @property
     def supports_tools(self) -> bool:
-        """OpenAI supports function/tool calling."""
         return True
     
-    async def _get_client(self) -> Any:
-        """Get or create the OpenAI client."""
-        if self._client is None:
-            try:
-                from openai import AsyncOpenAI
-                
-                self._client = AsyncOpenAI(
-                    api_key=self._api_key,
-                    base_url=self._base_url,
-                    timeout=self._timeout,
-                )
-            except ImportError:
-                raise ImportError(
-                    "OpenAI package not installed. Install with: pip install openai"
-                )
-        return self._client
+    @property
+    def supports_streaming(self) -> bool:
+        return True
     
     async def complete(
         self,
@@ -110,94 +103,98 @@ class OpenAIProvider(BaseLLMProvider):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """
-        Generate a completion.
+        """Generate a completion."""
+        model = model or self._model
         
-        Args:
-            messages: Conversation messages
-            model: Model to use
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens in response
-            tools: Available tools/functions
-            **kwargs: Additional OpenAI-specific options
-            
-        Returns:
-            LLM response
-        """
-        client = await self._get_client()
-        model_name = self._get_model(model)
+        # Convert messages to OpenAI format
+        formatted_messages = []
+        for msg in messages:
+            formatted = {
+                "role": msg.role.value if isinstance(msg.role, MessageRole) else msg.role,
+                "content": msg.content,
+            }
+            if msg.name:
+                formatted["name"] = msg.name
+            if msg.tool_call_id:
+                formatted["tool_call_id"] = msg.tool_call_id
+            formatted_messages.append(formatted)
         
-        # Format messages
-        formatted_messages = self._format_messages_with_images(messages)
-        
-        # Build request
-        request_params: dict = {
-            "model": model_name,
+        # Build request body
+        body: Dict[str, Any] = {
+            "model": model,
             "messages": formatted_messages,
             "temperature": temperature,
         }
         
         if max_tokens:
-            request_params["max_tokens"] = max_tokens
+            body["max_tokens"] = max_tokens
         
         # Add tools if provided
         if tools:
-            request_params["tools"] = [
+            body["tools"] = [
                 {
                     "type": "function",
                     "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
                     },
                 }
-                for t in tools
+                for tool in tools
             ]
         
-        # Add any additional kwargs
-        request_params.update(kwargs)
+        # Add any extra kwargs
+        body.update(kwargs)
+        
+        logger.debug(f"Calling OpenAI API: {model}")
         
         try:
-            response = await client.chat.completions.create(**request_params)
+            response = await self._client.post(
+                "/v1/chat/completions",
+                json=body,
+            )
+            response.raise_for_status()
+            data = response.json()
             
             # Parse response
-            choice = response.choices[0]
-            content = choice.message.content or ""
+            choice = data["choices"][0]
+            message = choice["message"]
             
-            # Parse tool calls if present
+            # Extract tool calls if present
             tool_calls = None
-            if choice.message.tool_calls:
+            if "tool_calls" in message and message["tool_calls"]:
                 tool_calls = [
                     ToolCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=tc.function.arguments,
+                        id=tc["id"],
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
                     )
-                    for tc in choice.message.tool_calls
+                    for tc in message["tool_calls"]
                 ]
             
-            return LLMResponse(
-                content=content,
-                model=response.model,
-                usage=Usage(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
-                    total_tokens=response.usage.total_tokens,
-                ),
-                tool_calls=tool_calls,
-                finish_reason=choice.finish_reason or "stop",
-                raw_response=response,
+            # Parse usage
+            usage_data = data.get("usage", {})
+            usage = Usage(
+                prompt_tokens=usage_data.get("prompt_tokens", 0),
+                completion_tokens=usage_data.get("completion_tokens", 0),
+                total_tokens=usage_data.get("total_tokens", 0),
             )
             
+            return LLMResponse(
+                content=message.get("content", ""),
+                model=data.get("model", model),
+                usage=usage,
+                tool_calls=tool_calls,
+                finish_reason=choice.get("finish_reason", "stop"),
+                raw_response=data,
+            )
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
-            error_str = str(e).lower()
-            
-            if "authentication" in error_str or "api key" in error_str:
-                raise LLMAuthenticationError(f"Authentication failed: {e}")
-            elif "rate limit" in error_str:
-                raise RateLimitError(f"Rate limit exceeded: {e}")
-            else:
-                raise LLMConnectionError(f"OpenAI API error: {e}")
+            logger.error(f"Error calling OpenAI API: {e}")
+            raise
     
     async def stream(
         self,
@@ -207,70 +204,64 @@ class OpenAIProvider(BaseLLMProvider):
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        """
-        Stream a completion.
+        """Stream a completion."""
+        model = model or self._model
         
-        Yields text chunks as they are generated.
-        """
-        client = await self._get_client()
-        model_name = self._get_model(model)
+        # Convert messages
+        formatted_messages = [
+            {
+                "role": msg.role.value if isinstance(msg.role, MessageRole) else msg.role,
+                "content": msg.content,
+            }
+            for msg in messages
+        ]
         
-        formatted_messages = self._format_messages_with_images(messages)
-        
-        request_params: dict = {
-            "model": model_name,
+        body = {
+            "model": model,
             "messages": formatted_messages,
             "temperature": temperature,
             "stream": True,
         }
         
         if max_tokens:
-            request_params["max_tokens"] = max_tokens
+            body["max_tokens"] = max_tokens
         
-        request_params.update(kwargs)
+        body.update(kwargs)
         
-        try:
-            stream = await client.chat.completions.create(**request_params)
+        async with self._client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json=body,
+        ) as response:
+            response.raise_for_status()
             
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-                    
-        except Exception as e:
-            raise LLMConnectionError(f"OpenAI streaming error: {e}")
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        delta = chunk["choices"][0].get("delta", {})
+                        if "content" in delta:
+                            yield delta["content"]
+                    except json.JSONDecodeError:
+                        continue
     
-    def _format_messages_with_images(self, messages: List[Message]) -> List[dict]:
-        """Format messages including image content for vision models."""
-        formatted = []
-        
-        for m in messages:
-            if m.images:
-                # Multi-modal message with images
-                content = [{"type": "text", "text": m.content}]
-                
-                for img in m.images:
-                    if img.is_url:
-                        content.append({
-                            "type": "image_url",
-                            "image_url": {"url": img.data},
-                        })
-                    else:
-                        content.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{img.media_type};base64,{img.data}"
-                            },
-                        })
-                
-                formatted.append({
-                    "role": m.role.value,
-                    "content": content,
-                })
-            else:
-                # Text-only message
-                formatted.append({
-                    "role": m.role.value,
-                    "content": m.content,
-                })
-        
-        return formatted
+    async def count_tokens(self, messages: List[Message], model: Optional[str] = None) -> int:
+        """Estimate token count (approximate)."""
+        # Simple estimation: ~4 chars per token
+        total_chars = sum(len(msg.content) for msg in messages)
+        return total_chars // 4
+    
+    async def health_check(self) -> bool:
+        """Check if the API is available."""
+        try:
+            response = await self._client.get("/health")
+            return response.status_code == 200
+        except Exception:
+            return False
+    
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        await self._client.aclose()
