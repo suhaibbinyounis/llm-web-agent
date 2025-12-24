@@ -1,7 +1,15 @@
-# Google Search Demo
-# Simple search on Google
-
-Go to google.com
-Type "llm web agent automation" in the search box
-Press Enter
-Wait for results to load
+1. Open the browser.
+2. Navigate to https://www.saucedemo.com.
+3. Enter username standard_user
+4. Enter password secret_sauce
+5. Click the login button.
+6. Wait for the page to load.
+7. Scroll down to view items.
+8. Click on “Sauce Labs Backpack.”
+9. Add it to the cart.
+10. Open the cart.
+11. Proceed to checkout.
+12. Fill in first name, last name, postal code.
+13. Continue to payment.
+14. Review order summary.
+15. Finish checkout.
