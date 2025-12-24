@@ -65,6 +65,7 @@ async def normalize_instructions(
     """
     import asyncio
     import json
+    from llm_web_agent.interfaces.llm import Message
     
     # Format instructions for prompt
     instructions_text = "\n".join(f"{i}. {inst}" for i, inst in enumerate(instructions, 1))
@@ -72,25 +73,28 @@ async def normalize_instructions(
     prompt = NORMALIZE_PROMPT.format(instructions=instructions_text)
     
     try:
+        # Use complete() with Message objects
+        messages = [Message.user(prompt)]
+        
         response = await asyncio.wait_for(
-            llm_provider.generate(prompt),
+            llm_provider.complete(messages, temperature=0.3),
             timeout=timeout_seconds,
         )
         
-        # Parse JSON response
-        response = response.strip()
+        # Extract content from LLMResponse
+        response_text = response.content.strip()
         
         # Handle markdown code blocks
-        if "```json" in response:
-            start = response.index("```json") + 7
-            end = response.index("```", start)
-            response = response[start:end]
-        elif "```" in response:
-            start = response.index("```") + 3
-            end = response.index("```", start)
-            response = response[start:end]
+        if "```json" in response_text:
+            start = response_text.index("```json") + 7
+            end = response_text.index("```", start)
+            response_text = response_text[start:end]
+        elif "```" in response_text:
+            start = response_text.index("```") + 3
+            end = response_text.index("```", start)
+            response_text = response_text[start:end]
         
-        normalized = json.loads(response.strip())
+        normalized = json.loads(response_text.strip())
         
         if not isinstance(normalized, list):
             logger.warning("LLM did not return a list")
