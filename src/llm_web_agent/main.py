@@ -335,6 +335,19 @@ async def _run_file_async(
         else:
             console.print(f"[green]✓ LLM connected[/green]")
         
+        # NORMALIZE ALL INSTRUCTIONS WITH ONE LLM CALL
+        console.print("[dim]⏳ Normalizing instructions...[/dim]")
+        from llm_web_agent.engine.instruction_normalizer import normalize_instructions, normalized_to_instruction
+        
+        normalized = await normalize_instructions(instructions, llm, timeout_seconds=30)
+        
+        if normalized:
+            # Convert normalized actions back to simple instruction strings
+            instructions = [normalized_to_instruction(action) for action in normalized]
+            console.print(f"[green]✓ Normalized to {len(instructions)} actions[/green]")
+        else:
+            console.print("[yellow]⚠ Normalization failed, using original instructions[/yellow]")
+        
         engine = Engine(llm_provider=llm)
         
         # Now launch browser
