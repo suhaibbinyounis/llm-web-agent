@@ -1,0 +1,7 @@
+# Google Search Demo
+# Simple search on Google
+
+Go to google.com
+Type "llm web agent automation" in the search box
+Press Enter
+Wait for results to load

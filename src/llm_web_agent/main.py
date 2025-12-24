@@ -190,6 +190,72 @@ async def _run_async(
         await cleanup()
 
 
+@app.command("run-file")
+def run_file(
+    file_path: str = typer.Argument(..., help="Path to instruction file (.txt)"),
+    visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
+    model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
+    api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    timeout: int = typer.Option(120, "--timeout", "-t", help="Max execution time in seconds"),
+    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
+):
+    """
+    Execute instructions from a file.
+    
+    File format:
+    - Lines starting with # are comments (ignored)
+    - Empty lines are ignored
+    - Each line is an instruction to execute
+    
+    Examples:
+        llm-web-agent run-file instructions/mui_demo.txt --visible
+        llm-web-agent run-file my_script.txt -v
+    """
+    import pathlib
+    
+    setup_logging(verbose)
+    
+    path = pathlib.Path(file_path)
+    if not path.exists():
+        console.print(f"[red]Error: File not found: {file_path}[/red]")
+        raise typer.Exit(1)
+    
+    # Read and parse file
+    lines = path.read_text().strip().split("\n")
+    instructions = []
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            instructions.append(line)
+    
+    if not instructions:
+        console.print(f"[yellow]Warning: No instructions found in {file_path}[/yellow]")
+        raise typer.Exit(1)
+    
+    # Combine into single instruction
+    combined = ". ".join(instructions)
+    
+    console.print(Panel.fit(
+        f"[bold blue]LLM Web Agent[/bold blue]\n"
+        f"[dim]File:[/dim] {file_path}\n"
+        f"[dim]Instructions:[/dim] {len(instructions)} steps",
+        border_style="blue",
+    ))
+    
+    for i, instr in enumerate(instructions, 1):
+        console.print(f"  [dim]{i}.[/dim] {instr}")
+    
+    console.print()
+    
+    asyncio.run(_run_async(
+        instruction=combined,
+        headless=not visible,
+        model=model,
+        api_url=api_url,
+        timeout=timeout,
+    ))
+
+
 @app.command()
 def version():
     """Show version information."""
