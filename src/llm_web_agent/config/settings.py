@@ -43,6 +43,13 @@ class BrowserSettings(BaseModel):
     # Download settings
     downloads_path: Optional[str] = None
     accept_downloads: bool = True
+    
+    # UI Overlay settings
+    show_overlay: bool = False  # Show sidebar with action history
+    highlight_elements: bool = False  # Highlight elements before interaction
+    overlay_position: Literal["left", "right"] = "right"
+    highlight_color: str = "#FF6B6B"  # Coral red
+    highlight_duration_ms: int = Field(default=1500, ge=100, le=5000)
 
 
 class LLMSettings(BaseModel):
