@@ -251,19 +251,51 @@ class InstructionParser:
         if not self._llm:
             return []
         
-        # TODO: Implement LLM parsing
-        # For now, return custom steps
-        logger.warning("LLM parsing not yet implemented, returning custom steps")
+        from llm_web_agent.engine.llm.strategy import LLMStrategy
+        from llm_web_agent.engine.llm.schemas import ParsedInstruction, StepIntent as LLMStepIntent
         
-        return [
-            ParsedClause(
-                text=clause,
-                intent=StepIntent.CUSTOM,
-                target=clause,
-                confidence=0.5,
-            )
-            for clause in clauses
-        ]
+        # Create strategy and parse
+        strategy = LLMStrategy(self._llm)
+        
+        # Combine clauses back for LLM
+        combined = ". ".join(clauses)
+        
+        response = await strategy.parse_instruction(combined, context)
+        
+        if not response.success or not response.parsed:
+            logger.warning(f"LLM parsing failed: {response.error}")
+            return [
+                ParsedClause(
+                    text=clause,
+                    intent=StepIntent.CUSTOM,
+                    target=clause,
+                    confidence=0.5,
+                )
+                for clause in clauses
+            ]
+        
+        # Convert LLM output to ParsedClauses
+        parsed_instruction: ParsedInstruction = response.parsed
+        results = []
+        
+        for step in parsed_instruction.steps:
+            # Map LLM intent to our StepIntent
+            try:
+                intent = StepIntent(step.intent)
+            except ValueError:
+                intent = StepIntent.CUSTOM
+            
+            results.append(ParsedClause(
+                text=f"{step.intent}: {step.target or ''}",
+                intent=intent,
+                target=step.target,
+                value=step.value,
+                store_as=step.store_as,
+                confidence=0.85,  # LLM-parsed confidence
+            ))
+        
+        logger.info(f"LLM parsed {len(results)} steps from {len(clauses)} clauses")
+        return results
     
     def _build_graph(
         self,

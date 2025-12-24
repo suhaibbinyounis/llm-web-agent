@@ -326,12 +326,54 @@ class TargetResolver:
         if not self._llm:
             return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
         
-        # TODO: Implement LLM resolution
-        # 1. Get simplified DOM
-        # 2. Send to LLM with target description
-        # 3. Parse LLM response for selector
+        from llm_web_agent.engine.llm.strategy import LLMStrategy
+        from llm_web_agent.engine.llm.dom_simplifier import DOMSimplifier
         
-        logger.debug("LLM resolution not yet implemented")
+        logger.info(f"Using LLM to find element: {target}")
+        
+        # Create strategy
+        strategy = LLMStrategy(self._llm)
+        
+        # Get simplified DOM
+        simplifier = DOMSimplifier()
+        simplified_dom = await simplifier.simplify(page)
+        
+        # Ask LLM to find element
+        found = await strategy.find_element(page, target, simplified_dom)
+        
+        if found.is_found and found.selector:
+            # Verify the selector works
+            try:
+                element = await page.query_selector(found.selector)
+                if element:
+                    logger.info(f"LLM found element with selector: {found.selector}")
+                    return ResolvedTarget(
+                        selector=found.selector,
+                        element=element,
+                        layer=ResolutionLayer.LLM,
+                        confidence=found.confidence,
+                    )
+            except Exception as e:
+                logger.debug(f"LLM selector failed to match: {e}")
+        
+        # Try using index if provided
+        if found.is_found and found.index is not None:
+            elem_info = simplified_dom.get_element(found.index)
+            if elem_info and elem_info.selector:
+                try:
+                    element = await page.query_selector(elem_info.selector)
+                    if element:
+                        logger.info(f"LLM found element by index {found.index}: {elem_info.selector}")
+                        return ResolvedTarget(
+                            selector=elem_info.selector,
+                            element=element,
+                            layer=ResolutionLayer.LLM,
+                            confidence=found.confidence,
+                        )
+                except Exception as e:
+                    logger.debug(f"LLM index selector failed: {e}")
+        
+        logger.warning(f"LLM could not find element: {target}")
         return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
     
     def _infer_element_types(

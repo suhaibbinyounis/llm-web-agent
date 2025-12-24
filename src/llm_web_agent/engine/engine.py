@@ -267,7 +267,7 @@ class Engine:
         context: RunContext,
     ) -> bool:
         """
-        Retry a failed step.
+        Retry a failed step with LLM-assisted recovery.
         
         Args:
             page: Browser page
@@ -280,20 +280,84 @@ class Engine:
         for attempt in range(self._max_retries):
             logger.info(f"Retrying step {step.id} (attempt {attempt + 1}/{self._max_retries})")
             
-            # Reset step status
+            # Wait for page stability
+            await self._state_manager.wait_for_stable(page)
+            
+            # On second attempt, try LLM-assisted recovery
+            if attempt > 0 and self._llm:
+                recovery = await self._get_llm_recovery(page, step, context)
+                if recovery:
+                    # Try recovery steps instead
+                    for recovery_step in recovery:
+                        recovery_step.status = StepStatus.PENDING
+                        result = await self._executor.execute_batch(page, [recovery_step], context)
+                        if result.all_success:
+                            # Mark original step as success
+                            step.status = StepStatus.SUCCESS
+                            step.error = None
+                            return True
+            
+            # Reset step status and try again
             step.status = StepStatus.PENDING
             step.error = None
             
-            # Wait a bit before retry
-            await self._state_manager.wait_for_stable(page)
-            
-            # Try again
             result = await self._executor.execute_batch(page, [step], context)
             
             if result.all_success:
                 return True
         
         return False
+    
+    async def _get_llm_recovery(
+        self,
+        page: "IPage",
+        step: TaskStep,
+        context: RunContext,
+    ) -> Optional[List[TaskStep]]:
+        """Get LLM-suggested recovery steps."""
+        if not self._llm:
+            return None
+        
+        from llm_web_agent.engine.llm.strategy import LLMStrategy
+        from llm_web_agent.engine.task_graph import StepIntent
+        
+        try:
+            strategy = LLMStrategy(self._llm)
+            
+            failed_action = f"{step.intent.value} on '{step.target}'"
+            if step.value:
+                failed_action += f" with value '{step.value}'"
+            
+            recovery = await strategy.suggest_recovery(
+                page=page,
+                failed_action=failed_action,
+                error=step.error or "Unknown error",
+                context=context,
+            )
+            
+            if not recovery.recovery_steps:
+                return None
+            
+            # Convert recovery steps to TaskSteps
+            result = []
+            for rec_step in recovery.recovery_steps:
+                try:
+                    intent = StepIntent(rec_step.intent)
+                except ValueError:
+                    intent = StepIntent.CUSTOM
+                
+                result.append(TaskStep(
+                    intent=intent,
+                    target=rec_step.target,
+                    value=rec_step.value,
+                ))
+            
+            logger.info(f"LLM suggested {len(result)} recovery steps: {recovery.diagnosis}")
+            return result
+        
+        except Exception as e:
+            logger.debug(f"LLM recovery failed: {e}")
+            return None
     
     def parse_instruction(self, instruction: str) -> TaskGraph:
         """
