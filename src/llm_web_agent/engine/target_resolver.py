@@ -1,11 +1,11 @@
 """
-Target Resolver - Multi-layer element resolution.
+Target Resolver - Fast, reliable element resolution.
 
-Resolves element descriptions to actual DOM elements using:
-1. Exact match (ID, data-testid, name)
-2. Text match (button text, label)
-3. Fuzzy match (similarity scoring)
-4. LLM resolution (complex cases)
+Simplified approach that works:
+1. Try direct selector first
+2. Try smart text-based selectors
+3. Try common patterns
+4. Skip LLM - too slow, use simpler heuristics
 """
 
 from dataclasses import dataclass, field
@@ -17,32 +17,21 @@ import logging
 if TYPE_CHECKING:
     from llm_web_agent.interfaces.browser import IPage, IElement
     from llm_web_agent.interfaces.llm import ILLMProvider
-    from llm_web_agent.intelligence.dom.parser import ParsedDOM
 
 logger = logging.getLogger(__name__)
 
 
 class ResolutionLayer(Enum):
     """Which layer resolved the target."""
-    EXACT = "exact"        # ID, data-testid, name
-    TEXT = "text"          # Text content match
-    FUZZY = "fuzzy"        # Similarity scoring
-    LLM = "llm"            # LLM resolution
-    FAILED = "failed"      # Could not resolve
+    EXACT = "exact"
+    TEXT = "text"
+    SMART = "smart"
+    FAILED = "failed"
 
 
 @dataclass
 class ResolvedTarget:
-    """
-    A resolved target element.
-    
-    Attributes:
-        selector: CSS selector to use
-        element: Direct element reference if available
-        layer: Which resolution layer succeeded
-        confidence: Confidence score (0-1)
-        alternatives: Other possible matches
-    """
+    """A resolved target element."""
     selector: str
     element: Optional["IElement"] = None
     layer: ResolutionLayer = ResolutionLayer.EXACT
@@ -51,58 +40,25 @@ class ResolvedTarget:
     
     @property
     def is_resolved(self) -> bool:
-        """Check if target was successfully resolved."""
-        return self.layer != ResolutionLayer.FAILED
+        return self.layer != ResolutionLayer.FAILED and bool(self.selector)
 
 
 class TargetResolver:
     """
-    Multi-layer element resolution.
+    Fast element resolution.
     
-    Tries multiple strategies to find elements:
-    1. EXACT: Direct selectors (ID, data-testid, name attributes)
-    2. TEXT: Text content matching
-    3. FUZZY: Fuzzy text matching with scoring
-    4. LLM: Ask LLM to identify element from DOM
-    
-    Example:
-        >>> resolver = TargetResolver()
-        >>> target = await resolver.resolve(page, "login button")
-        >>> if target.is_resolved:
-        ...     await page.click(target.selector)
+    Priority order:
+    1. Direct CSS selectors
+    2. Text-based Playwright selectors  
+    3. Role + text combinations
+    4. Common UI patterns
     """
-    
-    # Common element patterns for different intents
-    ROLE_SELECTORS = {
-        "button": ["button", "input[type='button']", "input[type='submit']", "[role='button']"],
-        "link": ["a", "[role='link']"],
-        "input": ["input:not([type='button']):not([type='submit'])", "textarea"],
-        "search": ["input[type='search']", "input[name*='search']", "input[placeholder*='search' i]", 
-                   "#search", ".search", "[role='searchbox']"],
-        "checkbox": ["input[type='checkbox']", "[role='checkbox']"],
-        "dropdown": ["select", "[role='combobox']", "[role='listbox']"],
-    }
-    
-    # Words that indicate element types
-    TYPE_KEYWORDS = {
-        "button": ["button", "btn", "submit", "click", "press"],
-        "link": ["link", "href", "url", "navigate"],
-        "input": ["field", "input", "textbox", "textarea", "form"],
-        "search": ["search", "find", "query"],
-    }
     
     def __init__(
         self,
         llm_provider: Optional["ILLMProvider"] = None,
         fuzzy_threshold: float = 0.6,
     ):
-        """
-        Initialize the resolver.
-        
-        Args:
-            llm_provider: Optional LLM for complex resolution
-            fuzzy_threshold: Minimum similarity score for fuzzy matching
-        """
         self._llm = llm_provider
         self._fuzzy_threshold = fuzzy_threshold
     
@@ -111,393 +67,322 @@ class TargetResolver:
         page: "IPage",
         target: str,
         intent: Optional[str] = None,
-        dom: Optional["ParsedDOM"] = None,
+        dom: Optional[Any] = None,
     ) -> ResolvedTarget:
-        """
-        Resolve a target description to a selector.
-        
-        Args:
-            page: Browser page
-            target: Target description (selector, text, or natural language)
-            intent: Optional intent hint (click, fill, etc.)
-            dom: Optional pre-parsed DOM
-            
-        Returns:
-            ResolvedTarget with selector and metadata
-        """
+        """Resolve target to selector."""
         target = target.strip()
         
         if not target:
-            return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
+            return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED)
         
-        # Layer 1: Exact match
-        result = await self._try_exact_match(page, target)
+        # 1. If it's already a selector, use it
+        if self._is_selector(target):
+            element = await self._try_selector(page, target)
+            if element:
+                return ResolvedTarget(
+                    selector=target,
+                    element=element,
+                    layer=ResolutionLayer.EXACT,
+                )
+        
+        # 2. Build smart selectors based on target text and intent
+        selectors = self._build_smart_selectors(target, intent)
+        
+        for selector in selectors:
+            element = await self._try_selector(page, selector)
+            if element:
+                is_visible = await self._is_visible(element)
+                if is_visible:
+                    logger.debug(f"Found '{target}' with: {selector}")
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        layer=ResolutionLayer.SMART,
+                        confidence=0.9,
+                    )
+        
+        # 3. Fallback: search all visible interactive elements
+        result = await self._search_interactive_elements(page, target, intent)
         if result.is_resolved:
             return result
         
-        # Layer 2: Text match
-        result = await self._try_text_match(page, target, intent)
-        if result.is_resolved:
-            return result
-        
-        # Layer 3: Fuzzy match
-        result = await self._try_fuzzy_match(page, target, intent)
-        if result.is_resolved:
-            return result
-        
-        # Layer 4: LLM resolution
-        if self._llm:
-            result = await self._try_llm_resolution(page, target, intent, dom)
-            if result.is_resolved:
-                return result
-        
-        # Failed to resolve
-        logger.warning(f"Could not resolve target: {target}")
-        return ResolvedTarget(
-            selector="",
-            layer=ResolutionLayer.FAILED,
-            confidence=0,
+        logger.warning(f"Could not resolve: {target}")
+        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED)
+    
+    def _is_selector(self, target: str) -> bool:
+        """Check if target looks like a CSS selector."""
+        return (
+            target.startswith(("#", ".", "[", "//")) or
+            "::" in target or
+            "=" in target or
+            ">" in target
         )
     
-    async def _try_exact_match(
-        self,
-        page: "IPage",
-        target: str,
-    ) -> ResolvedTarget:
-        """Try exact CSS selector or ID match."""
-        
-        # If it looks like a selector, try it directly
-        if target.startswith(("#", ".", "[")) or "=" in target:
-            try:
-                element = await page.query_selector(target)
-                if element:
-                    return ResolvedTarget(
-                        selector=target,
-                        element=element,
-                        layer=ResolutionLayer.EXACT,
-                        confidence=1.0,
-                    )
-            except Exception:
-                pass
-        
-        # Try common exact patterns
-        exact_patterns = [
-            f"#{target}",                          # ID
-            f"#{target.lower().replace(' ', '-')}", # ID with dashes
-            f"#{target.lower().replace(' ', '_')}", # ID with underscores
-            f"[data-testid='{target}']",           # data-testid
-            f"[data-test='{target}']",             # data-test
-            f"[name='{target}']",                  # name attribute
-            f"[aria-label='{target}']",            # aria-label
-        ]
-        
-        for pattern in exact_patterns:
-            try:
-                element = await page.query_selector(pattern)
-                if element:
-                    return ResolvedTarget(
-                        selector=pattern,
-                        element=element,
-                        layer=ResolutionLayer.EXACT,
-                        confidence=0.95,
-                    )
-            except Exception:
-                continue
-        
-        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
+    async def _try_selector(self, page: "IPage", selector: str) -> Optional["IElement"]:
+        """Try a selector safely."""
+        try:
+            return await page.query_selector(selector)
+        except Exception:
+            return None
     
-    async def _try_text_match(
-        self,
-        page: "IPage",
-        target: str,
-        intent: Optional[str] = None,
-    ) -> ResolvedTarget:
-        """Try matching by text content."""
+    async def _is_visible(self, element: "IElement") -> bool:
+        """Check if element is visible."""
+        try:
+            return await element.is_visible()
+        except Exception:
+            return True  # Assume visible if check fails
+    
+    def _build_smart_selectors(self, target: str, intent: Optional[str]) -> List[str]:
+        """Build smart selectors for the target."""
+        selectors = []
+        clean_target = target.lower().strip()
+        
+        # Extract the core text (remove common words)
+        core_text = self._extract_core_text(target)
         
         # Determine element type from intent and keywords
-        element_types = self._infer_element_types(target, intent)
+        is_button = intent in ("click", "submit") or any(
+            w in clean_target for w in ["button", "btn", "submit", "click"]
+        )
+        is_input = intent in ("fill", "type") or any(
+            w in clean_target for w in ["input", "field", "textbox", "box"]
+        )
+        is_link = any(w in clean_target for w in ["link"])
+        is_search = "search" in clean_target
         
-        # Build text-based selectors
-        text_selectors = []
+        # IMPORTANT: For fill/type intents, prioritize input elements FIRST
+        if intent in ("fill", "type"):
+            # Common search/input patterns first
+            selectors.extend([
+                'input[type="search"]',
+                'input[type="text"]',
+                '#searchInput',
+                '#search-input',
+                '#search',
+                'input[name="q"]',
+                'input[name="query"]',
+                'input[name="search"]',
+                '[role="searchbox"]',
+                'textarea',
+            ])
+            
+            # Then try attribute-based input selectors
+            selectors.extend([
+                f'input[placeholder*="{core_text}" i]',
+                f'input[name*="{core_text}" i]',
+                f'input[aria-label*="{core_text}" i]',
+                f'textarea[placeholder*="{core_text}" i]',
+                f'input[id*="{core_text}" i]',
+            ])
+            
+            # Try ID patterns
+            selectors.extend([
+                f'#{core_text.replace(" ", "-")}',
+                f'#{core_text.replace(" ", "_")}',
+                f'input#{core_text.replace(" ", "-")}',
+                f'input#{core_text.replace(" ", "_")}',
+            ])
         
-        for elem_type, base_selectors in self.ROLE_SELECTORS.items():
-            if not element_types or elem_type in element_types:
-                for base in base_selectors:
-                    # Exact text match
-                    text_selectors.append(f"{base}:has-text('{target}')")
-                    # Case-insensitive text
-                    text_selectors.append(f"{base}:text-is('{target}')")
+        # Standard text selectors (for clicks/links)
+        if intent not in ("fill", "type"):
+            # Playwright text selectors (most reliable for clicks)
+            selectors.extend([
+                f'text="{core_text}"',
+                f"text={core_text}",
+                f'text="{target}"',
+            ])
+            
+            # Role-based with text (very reliable for buttons/links)
+            if is_button:
+                selectors.extend([
+                    f'button:has-text("{core_text}")',
+                    f'[role="button"]:has-text("{core_text}")',
+                    f'input[type="submit"]:has-text("{core_text}")',
+                    f'a:has-text("{core_text}")',
+                ])
+            
+            if is_link:
+                selectors.extend([
+                    f'a:has-text("{core_text}")',
+                    f'[role="link"]:has-text("{core_text}")',
+                ])
         
-        # Also try generic text selectors
-        text_selectors.extend([
-            f"text='{target}'",
-            f"text={target}",
-            f"*:has-text('{target}')",
+        # Search-specific patterns (always useful for search)
+        if is_search:
+            selectors.extend([
+                'input[type="search"]',
+                'input[name="q"]',
+                'input[name="query"]',
+                'input[name="search"]',
+                '#search',
+                '#searchInput',
+                '#search-input',
+                '[role="searchbox"]',
+                'input[placeholder*="search" i]',
+                'input[aria-label*="search" i]',
+            ])
+        
+        # Attribute selectors
+        selectors.extend([
+            f'[name="{core_text}"]',
+            f'[data-testid="{core_text}"]',
+            f'[aria-label*="{core_text}" i]',
+            f'[title*="{core_text}" i]',
         ])
         
-        for selector in text_selectors:
-            try:
-                element = await page.query_selector(selector)
-                if element:
-                    # Verify element is visible and interactable
-                    if await element.is_visible():
-                        return ResolvedTarget(
-                            selector=selector,
-                            element=element,
-                            layer=ResolutionLayer.TEXT,
-                            confidence=0.85,
-                        )
-            except Exception:
-                continue
+        # More permissive text matching (only for non-fill)
+        if intent not in ("fill", "type"):
+            selectors.extend([
+                f'*:has-text("{core_text}")',
+                f'button >> text="{core_text}"',
+                f'a >> text="{core_text}"',
+            ])
         
-        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_selectors = []
+        for s in selectors:
+            if s not in seen:
+                seen.add(s)
+                unique_selectors.append(s)
+        
+        return unique_selectors
     
-    async def _try_fuzzy_match(
-        self,
-        page: "IPage",
-        target: str,
-        intent: Optional[str] = None,
-    ) -> ResolvedTarget:
-        """Try fuzzy matching with similarity scoring."""
+    def _extract_core_text(self, target: str) -> str:
+        """Extract core text from target description."""
+        # Remove common descriptor words
+        noise_words = [
+            "the", "a", "an", "button", "link", "input", "field",
+            "textbox", "box", "element", "click", "on", "in", "at",
+            "top", "bottom", "left", "right", "first", "last"
+        ]
         
-        # Get all interactive elements
-        element_types = self._infer_element_types(target, intent)
+        words = target.lower().split()
+        filtered = [w for w in words if w not in noise_words]
         
-        candidates: List[Tuple[str, float, Any]] = []
-        
-        # Build selector for candidate elements
-        if element_types:
-            selectors = []
-            for elem_type in element_types:
-                selectors.extend(self.ROLE_SELECTORS.get(elem_type, []))
-            candidate_selector = ", ".join(selectors) if selectors else "button, a, input, select"
-        else:
-            candidate_selector = "button, a, input, select, [role='button'], [onclick]"
-        
-        try:
-            elements = await page.query_selector_all(candidate_selector)
-            
-            for element in elements:
-                if not await element.is_visible():
-                    continue
-                
-                # Get element text/attributes
-                text = await element.text_content() or ""
-                aria_label = await element.get_attribute("aria-label") or ""
-                placeholder = await element.get_attribute("placeholder") or ""
-                title = await element.get_attribute("title") or ""
-                
-                # Score similarity
-                combined = f"{text} {aria_label} {placeholder} {title}".lower()
-                score = self._similarity_score(target.lower(), combined)
-                
-                if score >= self._fuzzy_threshold:
-                    # Build a selector for this element
-                    selector = await self._build_selector(element)
-                    candidates.append((selector, score, element))
-        
-        except Exception as e:
-            logger.debug(f"Fuzzy match error: {e}")
-        
-        if candidates:
-            # Sort by score descending
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            best_selector, best_score, best_element = candidates[0]
-            
-            return ResolvedTarget(
-                selector=best_selector,
-                element=best_element,
-                layer=ResolutionLayer.FUZZY,
-                confidence=best_score,
-                alternatives=[c[0] for c in candidates[1:5]],
-            )
-        
-        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
+        if filtered:
+            return " ".join(filtered)
+        return target
     
-    async def _try_llm_resolution(
+    async def _search_interactive_elements(
         self,
         page: "IPage",
         target: str,
         intent: Optional[str],
-        dom: Optional["ParsedDOM"],
     ) -> ResolvedTarget:
-        """Use LLM to resolve complex targets."""
+        """Search through interactive elements for a match."""
         
-        if not self._llm:
-            return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
+        # Get all interactive elements
+        selector = "button, a, input, select, textarea, [role='button'], [role='link'], [onclick]"
         
-        from llm_web_agent.engine.llm.strategy import LLMStrategy
-        from llm_web_agent.engine.llm.dom_simplifier import DOMSimplifier
-        
-        logger.info(f"Using LLM to find element: {target}")
-        
-        # Create strategy
-        strategy = LLMStrategy(self._llm)
-        
-        # Get simplified DOM
-        simplifier = DOMSimplifier()
-        simplified_dom = await simplifier.simplify(page)
-        
-        # Ask LLM to find element
-        found = await strategy.find_element(page, target, simplified_dom)
-        
-        if found.is_found and found.selector:
-            # Verify the selector works
-            try:
-                element = await page.query_selector(found.selector)
-                if element:
-                    logger.info(f"LLM found element with selector: {found.selector}")
-                    return ResolvedTarget(
-                        selector=found.selector,
-                        element=element,
-                        layer=ResolutionLayer.LLM,
-                        confidence=found.confidence,
-                    )
-            except Exception as e:
-                logger.debug(f"LLM selector failed to match: {e}")
-        
-        # Try using index if provided
-        if found.is_found and found.index is not None:
-            elem_info = simplified_dom.get_element(found.index)
-            if elem_info and elem_info.selector:
+        try:
+            elements = await page.query_selector_all(selector)
+            
+            target_lower = target.lower()
+            core_text = self._extract_core_text(target).lower()
+            
+            best_match = None
+            best_score = 0
+            
+            for element in elements:
+                # Skip hidden elements
                 try:
-                    element = await page.query_selector(elem_info.selector)
-                    if element:
-                        logger.info(f"LLM found element by index {found.index}: {elem_info.selector}")
-                        return ResolvedTarget(
-                            selector=elem_info.selector,
-                            element=element,
-                            layer=ResolutionLayer.LLM,
-                            confidence=found.confidence,
-                        )
-                except Exception as e:
-                    logger.debug(f"LLM index selector failed: {e}")
+                    if not await element.is_visible():
+                        continue
+                except:
+                    continue
+                
+                # Get element info
+                text = (await element.text_content() or "").lower().strip()
+                aria_label = (await element.get_attribute("aria-label") or "").lower()
+                placeholder = (await element.get_attribute("placeholder") or "").lower()
+                name = (await element.get_attribute("name") or "").lower()
+                id_attr = (await element.get_attribute("id") or "").lower()
+                
+                # Calculate match score
+                score = 0
+                
+                # Exact text match
+                if core_text == text:
+                    score = 1.0
+                elif core_text in text:
+                    score = 0.8
+                elif text in core_text and len(text) > 2:
+                    score = 0.7
+                
+                # Check attributes
+                if core_text in aria_label:
+                    score = max(score, 0.85)
+                if core_text in placeholder:
+                    score = max(score, 0.8)
+                if core_text in name:
+                    score = max(score, 0.75)
+                if core_text in id_attr:
+                    score = max(score, 0.75)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = element
+            
+            if best_match and best_score >= 0.6:
+                # Build selector for this element
+                selector = await self._build_element_selector(best_match)
+                logger.debug(f"Found '{target}' via search with score {best_score}: {selector}")
+                return ResolvedTarget(
+                    selector=selector,
+                    element=best_match,
+                    layer=ResolutionLayer.SMART,
+                    confidence=best_score,
+                )
         
-        logger.warning(f"LLM could not find element: {target}")
-        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED, confidence=0)
+        except Exception as e:
+            logger.debug(f"Search error: {e}")
+        
+        return ResolvedTarget(selector="", layer=ResolutionLayer.FAILED)
     
-    def _infer_element_types(
+    async def _build_element_selector(self, element: "IElement") -> str:
+        """Build a unique selector for an element."""
+        try:
+            # Try ID first
+            id_attr = await element.get_attribute("id")
+            if id_attr:
+                return f"#{id_attr}"
+            
+            # Try data-testid
+            testid = await element.get_attribute("data-testid")
+            if testid:
+                return f'[data-testid="{testid}"]'
+            
+            # Try name
+            name = await element.get_attribute("name")
+            if name:
+                return f'[name="{name}"]'
+            
+            # Try text content
+            text = await element.text_content()
+            if text and len(text.strip()) < 50:
+                return f'text="{text.strip()}"'
+            
+            # Fallback: use aria-label
+            aria = await element.get_attribute("aria-label")
+            if aria:
+                return f'[aria-label="{aria}"]'
+            
+        except Exception:
+            pass
+        
+        # Can't build a reliable selector
+        return ""
+    
+    async def resolve_multiple(
         self,
-        target: str,
+        page: "IPage",
+        targets: List[str],
         intent: Optional[str] = None,
-    ) -> List[str]:
-        """Infer likely element types from target and intent."""
-        types = []
-        target_lower = target.lower()
-        
-        # Check intent
-        if intent:
-            if intent in ("click", "press", "submit"):
-                types.extend(["button", "link"])
-            elif intent in ("fill", "type", "input"):
-                types.extend(["input"])
-            elif intent == "select":
-                types.append("dropdown")
-        
-        # Check keywords in target
-        for elem_type, keywords in self.TYPE_KEYWORDS.items():
-            for keyword in keywords:
-                if keyword in target_lower:
-                    if elem_type not in types:
-                        types.append(elem_type)
-                    break
-        
-        return types
-    
-    def _similarity_score(self, target: str, text: str) -> float:
-        """Calculate similarity score between target and element text."""
-        if not target or not text:
-            return 0.0
-        
-        # Simple word overlap scoring
-        target_words = set(target.split())
-        text_words = set(text.split())
-        
-        if not target_words:
-            return 0.0
-        
-        # Check for exact substring match
-        if target in text:
-            return 0.9
-        
-        # Word overlap
-        overlap = len(target_words & text_words)
-        score = overlap / len(target_words)
-        
-        # Boost if all target words found
-        if overlap == len(target_words):
-            score = min(score + 0.2, 1.0)
-        
-        return score
-    
-    async def _build_selector(self, element: "IElement") -> str:
-        """Build a CSS selector for an element."""
-        # Try to get unique identifier
-        elem_id = await element.get_attribute("id")
-        if elem_id:
-            return f"#{elem_id}"
-        
-        data_testid = await element.get_attribute("data-testid")
-        if data_testid:
-            return f"[data-testid='{data_testid}']"
-        
-        name = await element.get_attribute("name")
-        if name:
-            tag = await element.evaluate("el => el.tagName.toLowerCase()")
-            return f"{tag}[name='{name}']"
-        
-        # Fallback: use text content
-        text = await element.text_content()
-        if text and len(text) < 50:
-            return f"text='{text.strip()}'"
-        
-        # Last resort: nth-child selector
-        # This is fragile but better than nothing
-        return await element.evaluate("""el => {
-            function getSelector(element) {
-                if (element.id) return '#' + element.id;
-                let path = [];
-                while (element && element.nodeType === Node.ELEMENT_NODE) {
-                    let selector = element.tagName.toLowerCase();
-                    if (element.id) {
-                        selector = '#' + element.id;
-                        path.unshift(selector);
-                        break;
-                    }
-                    let sibling = element;
-                    let nth = 1;
-                    while (sibling = sibling.previousElementSibling) {
-                        if (sibling.tagName === element.tagName) nth++;
-                    }
-                    if (nth > 1) selector += ':nth-of-type(' + nth + ')';
-                    path.unshift(selector);
-                    element = element.parentNode;
-                }
-                return path.join(' > ');
-            }
-            return getSelector(el);
-        }""")
-
-
-async def resolve_multiple(
-    resolver: TargetResolver,
-    page: "IPage",
-    targets: Dict[str, str],
-    intent: Optional[str] = None,
-) -> Dict[str, ResolvedTarget]:
-    """
-    Resolve multiple targets efficiently.
-    
-    Args:
-        resolver: TargetResolver instance
-        page: Browser page
-        targets: Dict of name → target description
-        intent: Optional intent hint
-        
-    Returns:
-        Dict of name → ResolvedTarget
-    """
-    results = {}
-    for name, target in targets.items():
-        results[name] = await resolver.resolve(page, target, intent)
-    return results
+    ) -> List[ResolvedTarget]:
+        """Resolve multiple targets."""
+        results = []
+        for target in targets:
+            result = await self.resolve(page, target, intent)
+            results.append(result)
+        return results

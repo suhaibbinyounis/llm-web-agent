@@ -64,11 +64,22 @@ class InstructionParser:
         (re.compile(r'^(?:search|look|find)\s+(.+?)\s+(?:on|in|at)\s+(.+)$', re.I),
          StepIntent.FILL, {"value": 1, "target": 2}),
         
+        # PRESS KEY - MUST be before generic "press" click pattern!
+        (re.compile(r'^press\s+(enter|return|tab|escape|esc|backspace|delete|space|up|down|left|right)(?:\s+key)?$', re.I),
+         StepIntent.PRESS_KEY, {"value": 1}),
+        
+        (re.compile(r'^hit\s+(enter|return|tab|escape|esc)(?:\s+key)?$', re.I),
+         StepIntent.PRESS_KEY, {"value": 1}),
+        
         # Click
         (re.compile(r'^click\s+(?:on\s+)?(?:the\s+)?(.+)$', re.I),
          StepIntent.CLICK, {"target": 1}),
         
-        (re.compile(r'^(?:press|tap|select|choose)\s+(?:the\s+)?(.+)$', re.I),
+        (re.compile(r'^(?:tap|select|choose)\s+(?:the\s+)?(.+)$', re.I),
+         StepIntent.CLICK, {"target": 1}),
+        
+        # Only "press" on non-key things (like buttons)
+        (re.compile(r'^press\s+(?:the\s+)?(.+?)\s+(?:button|link)$', re.I),
          StepIntent.CLICK, {"target": 1}),
         
         # Fill/Type
@@ -113,10 +124,6 @@ class InstructionParser:
         # Submit
         (re.compile(r'^submit(?:\s+(?:the\s+)?(?:form|page))?$', re.I),
          StepIntent.SUBMIT, {}),
-        
-        # Press key
-        (re.compile(r'^press\s+(enter|tab|escape|esc|backspace|delete)$', re.I),
-         StepIntent.PRESS_KEY, {"value": 1}),
         
         # Hover
         (re.compile(r'^hover\s+(?:over\s+)?(?:the\s+)?(.+)$', re.I),
