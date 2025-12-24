@@ -495,6 +495,17 @@ class TargetResolver:
             return result
         self._record_outcome(domain, "dynamic", False, dynamic_start)
         
+        # Strategy 7: LLM DISAMBIGUATION (adaptive fallback)
+        # Uses LLM only when severity is high enough
+        if self._llm:
+            llm_start = time.time()
+            result = await self._try_llm_disambiguation(page, target, intent)
+            if result.is_resolved:
+                self._record_outcome(domain, "llm", True, llm_start)
+                logger.info(f"LLM found '{target}' with: {result.selector}")
+                return result
+            self._record_outcome(domain, "llm", False, llm_start)
+        
         logger.warning(f"Could not resolve: {target}")
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
@@ -986,6 +997,78 @@ class TargetResolver:
                 )
         
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_llm_disambiguation(
+        self,
+        page: "IPage",
+        target: str,
+        intent: Optional[str],
+    ) -> ResolvedTarget:
+        """
+        Use LLM to disambiguate and find the right element.
+        
+        This is the final fallback when all other strategies fail.
+        Uses LLMFallback to assess severity and ask LLM for help.
+        """
+        if not self._llm:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        try:
+            from llm_web_agent.engine.llm_fallback import (
+                LLMFallback, ResolutionContext
+            )
+            
+            fallback = LLMFallback(self._llm)
+            
+            # Build context
+            context = ResolutionContext(
+                target=target,
+                page_title=await page.title() if hasattr(page, 'title') else "",
+            )
+            
+            # Get visible elements
+            context.visible_buttons = await fallback._get_visible_elements(page)
+            
+            if not context.visible_buttons:
+                logger.debug("No visible elements for LLM disambiguation")
+                return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+            
+            # Ask LLM
+            result = await fallback.disambiguate(page, context)
+            
+            if not result.success or not result.matched_text:
+                logger.debug(f"LLM disambiguation failed: {result.reasoning}")
+                return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+            
+            # Try to find the element LLM suggested
+            matched = result.matched_text
+            logger.info(f"LLM suggests: '{matched}' for target '{target}'")
+            
+            # Try text-first with LLM's suggestion
+            resolved = await self._try_text_first(page, matched)
+            if resolved.is_resolved:
+                return ResolvedTarget(
+                    selector=resolved.selector,
+                    element=resolved.element,
+                    strategy=ResolutionStrategy.FUZZY,  # Mark as fuzzy since LLM-assisted
+                    confidence=0.8,
+                )
+            
+            # Try Playwright text selector
+            resolved = await self._try_playwright_text(page, matched)
+            if resolved.is_resolved:
+                return ResolvedTarget(
+                    selector=resolved.selector,
+                    element=resolved.element,
+                    strategy=ResolutionStrategy.PLAYWRIGHT,
+                    confidence=0.75,
+                )
+            
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+            
+        except Exception as e:
+            logger.debug(f"LLM disambiguation error: {e}")
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     async def _try_fuzzy_search(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
         """
