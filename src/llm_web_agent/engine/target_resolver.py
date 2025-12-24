@@ -393,6 +393,58 @@ class TargetResolver:
         
         start_time = time.time()
         
+        # Extract hints if present: "click cart [hints: #shopping_cart, .cart]"
+        # The instruction normalizer embeds these for smarter resolution
+        hints: List[str] = []
+        hint_match = re.search(r'\s*\[hints?:\s*(.+?)\]$', target, re.I)
+        if hint_match:
+            hints_str = hint_match.group(1)
+            hints = [h.strip() for h in hints_str.split(',') if h.strip()]
+            target = target[:hint_match.start()].strip()
+            logger.debug(f"Extracted hints for '{target}': {hints}")
+        
+        # Strategy -1: TRY HINTS FIRST (provided by LLM normalizer)
+        if hints:
+            for hint in hints:
+                try:
+                    # If hint looks like a selector, try it directly
+                    if hint.startswith('#') or hint.startswith('.') or hint.startswith('[') or '=' in hint:
+                        element = await page.query_selector(hint)
+                        if element and await element.is_visible():
+                            elapsed = (time.time() - start_time) * 1000
+                            logger.info(f"HINT found '{target}' with: {hint} ({elapsed:.0f}ms)")
+                            return ResolvedTarget(
+                                selector=hint,
+                                element=element,
+                                strategy=ResolutionStrategy.EXACT,
+                                confidence=0.95,
+                            )
+                    else:
+                        # Treat as text to match (aria-label, text content, id, name)
+                        for selector in [
+                            f'[id*="{hint}" i]',
+                            f'[name*="{hint}" i]',
+                            f'[aria-label*="{hint}" i]',
+                            f'[data-test*="{hint}" i]',
+                            f':text("{hint}")',
+                        ]:
+                            try:
+                                element = await page.query_selector(selector)
+                                if element and await element.is_visible():
+                                    elapsed = (time.time() - start_time) * 1000
+                                    logger.info(f"HINT found '{target}' with: {selector} ({elapsed:.0f}ms)")
+                                    return ResolvedTarget(
+                                        selector=selector,
+                                        element=element,
+                                        strategy=ResolutionStrategy.SMART,
+                                        confidence=0.9,
+                                    )
+                            except Exception:
+                                continue
+                except Exception as e:
+                    logger.debug(f"Hint '{hint}' failed: {e}")
+                    continue
+        
         # Check for spatial reference (e.g., "Submit near Email")
         # Use DOMMap for spatial queries if available
         spatial_match = re.search(r'(.+?)\s+(?:near|next to|close to|beside)\s+(.+)', target, re.I)

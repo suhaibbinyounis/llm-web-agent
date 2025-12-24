@@ -7,7 +7,7 @@
 7. Scroll down to view items.
 8. Click on “Sauce Labs Backpack.”
 9. Add it to the cart.
-10. Open the cart.
+10. Click the Shopping cart icon
 11. Proceed to checkout.
 12. Fill in first name, last name, postal code.
 13. Continue to payment.

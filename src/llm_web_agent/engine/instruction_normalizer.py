@@ -29,18 +29,19 @@ Convert these natural language instructions into our standard format.
 
 **RULES:**
 1. Skip meta-instructions like "Open browser" (already open)
-2. Combine related steps if needed
-3. Extract exact values from instructions
-4. Keep it simple and direct
+2. Extract exact values and IDs from instructions
+3. For each action, provide search hints (alternative selectors, synonyms, attribute patterns)
+4. Use common HTML patterns: icon buttons often have aria-label, data-test, or class names
 
 **INSTRUCTIONS TO CONVERT:**
 {instructions}
 
 **RESPOND WITH JSON ARRAY:**
 [
-  {{"action": "navigate", "url": "..."}},
-  {{"action": "fill", "target": "username", "value": "..."}},
-  {{"action": "click", "target": "..."}},
+  {{"action": "navigate", "url": "https://example.com"}},
+  {{"action": "fill", "target": "username", "value": "user123", "hints": ["#username", "input[name=username]", "user-name"]}},
+  {{"action": "click", "target": "login button", "hints": ["#login-button", "button[type=submit]", ".login-btn", "Login"]}},
+  {{"action": "click", "target": "shopping cart icon", "hints": ["#shopping_cart", ".shopping_cart_link", "aria-label=cart", "cart"]}},
   ...
 ]
 
@@ -120,10 +121,17 @@ def normalized_to_instruction(action: dict) -> str:
     """
     Convert a normalized action dict back to a simple instruction string.
     
-    This allows us to use the existing instruction parser which now has
-    patterns for these standard formats.
+    Includes hints in a format the resolver can parse:
+    - "click cart [hints: #shopping_cart, .cart-icon]"
     """
     action_type = action.get("action", "").lower()
+    hints = action.get("hints", [])
+    
+    def format_with_hints(base: str) -> str:
+        if hints:
+            hints_str = ", ".join(hints[:5])  # Max 5 hints
+            return f"{base} [hints: {hints_str}]"
+        return base
     
     if action_type == "navigate":
         url = action.get("url", "")
@@ -131,12 +139,12 @@ def normalized_to_instruction(action: dict) -> str:
     
     elif action_type == "click":
         target = action.get("target", "")
-        return f"click {target}"
+        return format_with_hints(f"click {target}")
     
     elif action_type == "fill":
         target = action.get("target", "")
         value = action.get("value", "")
-        return f"enter {target} {value}"
+        return format_with_hints(f"enter {target} {value}")
     
     elif action_type == "type":
         value = action.get("value", "")

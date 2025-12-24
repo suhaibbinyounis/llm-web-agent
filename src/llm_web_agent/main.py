@@ -339,7 +339,7 @@ async def _run_file_async(
         console.print(f"[dim]⏳ Normalizing {len(instructions)} instructions (one LLM call)...[/dim]")
         from llm_web_agent.engine.instruction_normalizer import normalize_instructions, normalized_to_instruction
         
-        normalized = await normalize_instructions(instructions, llm, timeout_seconds=60)
+        normalized = await normalize_instructions(instructions, llm, timeout_seconds=120)
         
         if normalized:
             # Convert normalized actions back to simple instruction strings
