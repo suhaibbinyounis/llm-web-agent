@@ -319,6 +319,10 @@ class TargetResolver:
         self._text_index = None
         self._dom_map = None
         
+        # Pre-analysis hints (set by Engine before resolution)
+        self._synonyms: Dict[str, List[str]] = {}
+        self._selector_hints: List[str] = []
+        
         if enable_tracking:
             try:
                 from llm_web_agent.engine.strategy_tracker import get_tracker
@@ -339,6 +343,28 @@ class TargetResolver:
                 self._dom_map = DOMMap()
             except ImportError:
                 logger.debug("DOMMap not available")
+    
+    def set_hints(self, synonyms: Dict[str, List[str]] = None, selector_hints: List[str] = None):
+        """
+        Set pre-analysis hints for target resolution.
+        
+        These hints augment resolution without overriding user intent.
+        
+        Args:
+            synonyms: Map of target -> [synonym1, synonym2, ...]
+            selector_hints: List of CSS selectors to try
+        """
+        if synonyms:
+            self._synonyms = synonyms
+            logger.debug(f"Set {sum(len(s) for s in synonyms.values())} synonyms for {len(synonyms)} targets")
+        if selector_hints:
+            self._selector_hints = selector_hints
+            logger.debug(f"Set {len(selector_hints)} selector hints")
+    
+    def clear_hints(self):
+        """Clear pre-analysis hints."""
+        self._synonyms = {}
+        self._selector_hints = []
     
     async def resolve(
         self,
@@ -439,6 +465,17 @@ class TargetResolver:
                 return result
         
         # Slower strategies (always sequential)
+        
+        # Strategy 4.5: Try synonyms from pre-analysis (before fuzzy)
+        if self._synonyms:
+            synonym_start = time.time()
+            result = await self._try_synonyms(page, target, intent)
+            if result.is_resolved:
+                self._record_outcome(domain, "synonym", True, synonym_start)
+                logger.info(f"SYNONYM found '{target}' with: {result.selector}")
+                return result
+            self._record_outcome(domain, "synonym", False, synonym_start)
+        
         # Strategy 5: Fuzzy search all interactive elements
         fuzzy_start = time.time()
         result = await self._try_fuzzy_search(page, target, intent)
@@ -905,6 +942,51 @@ class TargetResolver:
         words = [w for w in target.lower().split() if w not in noise]
         return " ".join(words) if words else target.lower()
     
+    async def _try_synonyms(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """
+        Try pre-analyzed synonyms to find the target element.
+        
+        This runs BEFORE fuzzy matching and uses LLM-generated synonyms
+        that respect the user's original intent.
+        """
+        target_lower = target.lower()
+        
+        # Find synonyms for this target
+        synonyms = []
+        for key, syns in self._synonyms.items():
+            if key.lower() == target_lower or target_lower in key.lower():
+                synonyms.extend(syns)
+        
+        if not synonyms:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        logger.debug(f"Trying {len(synonyms)} synonyms for '{target}': {synonyms[:3]}...")
+        
+        for synonym in synonyms:
+            # Try TEXT_FIRST strategy with synonym
+            result = await self._try_text_first(page, synonym)
+            if result.is_resolved:
+                logger.debug(f"Synonym '{synonym}' matched")
+                return ResolvedTarget(
+                    selector=result.selector,
+                    element=result.element,
+                    strategy=ResolutionStrategy.TEXT_FIRST,  # Keep original strategy
+                    confidence=0.9,  # High confidence for synonym match
+                )
+            
+            # Try Playwright text selector with synonym
+            result = await self._try_playwright_text(page, synonym)
+            if result.is_resolved:
+                logger.debug(f"Synonym '{synonym}' matched via Playwright")
+                return ResolvedTarget(
+                    selector=result.selector,
+                    element=result.element,
+                    strategy=ResolutionStrategy.PLAYWRIGHT,
+                    confidence=0.85,
+                )
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
     async def _try_fuzzy_search(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
         """
         Search all interactive elements with enhanced fuzzy matching.
@@ -916,7 +998,6 @@ class TargetResolver:
         4. Word overlap (0.5-0.85 based on overlap %)
         5. Levenshtein similarity (0.5-0.75)
         """
-        
         try:
             selector = "button, a, input, select, textarea, [role='button'], [role='link'], [onclick], .MuiButton-root, .MuiButtonBase-root"
             elements = await page.query_selector_all(selector)

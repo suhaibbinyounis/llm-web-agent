@@ -105,6 +105,10 @@ class AgentSettings(BaseModel):
     # Output settings
     output_dir: str = "./output"
     save_trace: bool = False
+    
+    # Pre-analysis settings (parallel LLM during browser startup)
+    enable_pre_analysis: bool = True  # Generate synonyms/hints for targets
+    pre_analysis_timeout_ms: int = Field(default=5000, ge=1000, le=15000)
 
 
 class LoggingSettings(BaseModel):
