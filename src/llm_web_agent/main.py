@@ -202,22 +202,21 @@ def run_file(
     """
     Execute instructions from a file.
     
-    File format:
-    - Lines starting with # are comments (ignored)
-    - Empty lines are ignored
-    - Each line is an instruction to execute
+    Each line is executed as a separate instruction.
     
     Examples:
         llm-web-agent run-file instructions/mui_demo.txt --visible
-        llm-web-agent run-file my_script.txt -v
     """
     import pathlib
+    from rich.table import Table
+    from rich.live import Live
+    from rich.layout import Layout
     
     setup_logging(verbose)
     
     path = pathlib.Path(file_path)
     if not path.exists():
-        console.print(f"[red]Error: File not found: {file_path}[/red]")
+        console.print(f"[red]✗ File not found: {file_path}[/red]")
         raise typer.Exit(1)
     
     # Read and parse file
@@ -229,31 +228,159 @@ def run_file(
             instructions.append(line)
     
     if not instructions:
-        console.print(f"[yellow]Warning: No instructions found in {file_path}[/yellow]")
+        console.print(f"[yellow]⚠ No instructions found in {file_path}[/yellow]")
         raise typer.Exit(1)
     
-    # Combine into single instruction
-    combined = ". ".join(instructions)
-    
+    # Display script info
+    console.print()
     console.print(Panel.fit(
-        f"[bold blue]LLM Web Agent[/bold blue]\n"
-        f"[dim]File:[/dim] {file_path}\n"
-        f"[dim]Instructions:[/dim] {len(instructions)} steps",
+        f"[bold blue]🤖 LLM Web Agent[/bold blue]\n"
+        f"[dim]Script:[/dim] {path.name}\n"
+        f"[dim]Steps:[/dim] {len(instructions)}",
         border_style="blue",
     ))
     
-    for i, instr in enumerate(instructions, 1):
-        console.print(f"  [dim]{i}.[/dim] {instr}")
+    # Show instructions table
+    table = Table(show_header=True, header_style="bold cyan", box=None)
+    table.add_column("#", width=3)
+    table.add_column("Instruction", style="dim")
+    table.add_column("Status", width=10)
     
+    for i, instr in enumerate(instructions, 1):
+        table.add_row(str(i), instr[:60] + ("..." if len(instr) > 60 else ""), "[dim]pending[/dim]")
+    
+    console.print(table)
     console.print()
     
-    asyncio.run(_run_async(
-        instruction=combined,
+    # Run with sequential execution per line
+    asyncio.run(_run_file_async(
+        instructions=instructions,
         headless=not visible,
         model=model,
         api_url=api_url,
         timeout=timeout,
     ))
+
+
+async def _run_file_async(
+    instructions: list,
+    headless: bool,
+    model: str,
+    api_url: str,
+    timeout: int,
+):
+    """Run instructions from file - each line separately."""
+    import signal
+    
+    browser = None
+    llm = None
+    cleanup_done = False
+    
+    async def cleanup():
+        nonlocal cleanup_done
+        if cleanup_done:
+            return
+        cleanup_done = True
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+        if llm:
+            try:
+                await llm.close()
+            except Exception:
+                pass
+    
+    def signal_handler(sig, frame):
+        console.print("\n[dim]Cleaning up...[/dim]")
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(cleanup())
+        raise KeyboardInterrupt
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Initialize LLM first (before browser)
+        console.print("[dim]⏳ Connecting to LLM...[/dim]")
+        llm = OpenAIProvider(base_url=api_url, model=model)
+        
+        if not await llm.health_check():
+            console.print(f"[yellow]⚠ LLM API at {api_url} may not be available[/yellow]")
+        else:
+            console.print(f"[green]✓ LLM connected[/green]")
+        
+        engine = Engine(llm_provider=llm)
+        
+        # Now launch browser
+        console.print("[dim]⏳ Launching browser...[/dim]")
+        browser = PlaywrightBrowser()
+        await browser.launch(headless=headless)
+        console.print(f"[green]✓ Browser ready[/green]")
+        console.print()
+        
+        page = await browser.new_page()
+        
+        # Execute each instruction
+        total = len(instructions)
+        succeeded = 0
+        failed = 0
+        
+        for i, instruction in enumerate(instructions, 1):
+            console.print(f"[bold cyan]Step {i}/{total}:[/bold cyan] {instruction}")
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+                transient=True,
+            ) as progress:
+                task = progress.add_task("Executing...", total=None)
+                
+                result = await engine.run(page=page, task=instruction)
+                progress.update(task, completed=True)
+            
+            if result.success:
+                console.print(f"  [green]✓ Done[/green] ({result.duration_seconds:.1f}s)")
+                succeeded += 1
+            else:
+                console.print(f"  [red]✗ Failed:[/red] {result.error}")
+                failed += 1
+                # Continue to next instruction
+        
+        # Summary
+        console.print()
+        if failed == 0:
+            console.print(Panel.fit(
+                f"[bold green]✓ All {total} steps completed successfully[/bold green]",
+                border_style="green",
+            ))
+        else:
+            console.print(Panel.fit(
+                f"[bold yellow]⚠ Completed: {succeeded}/{total} steps ({failed} failed)[/bold yellow]",
+                border_style="yellow",
+            ))
+        
+        # Keep browser open if visible
+        if not headless:
+            console.print("\n[dim]Browser is open. Press Ctrl+C to close.[/dim]")
+            try:
+                await asyncio.sleep(3600)
+            except KeyboardInterrupt:
+                pass
+    
+    except KeyboardInterrupt:
+        console.print("[dim]Interrupted[/dim]")
+    
+    except Exception as e:
+        console.print(f"\n[red]✗ Error: {e}[/red]")
+        logging.exception("Execution failed")
+        raise typer.Exit(1)
+    
+    finally:
+        await cleanup()
 
 
 @app.command()
