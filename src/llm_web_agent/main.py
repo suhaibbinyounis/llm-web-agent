@@ -83,9 +83,43 @@ async def _run_async(
     api_url: str,
     timeout: int,
 ):
-    """Run the agent asynchronously."""
+    """Run the agent asynchronously with proper cleanup."""
+    import signal
+    
     browser = None
     llm = None
+    cleanup_done = False
+    
+    async def cleanup():
+        """Ensure browser and LLM are properly closed."""
+        nonlocal cleanup_done
+        if cleanup_done:
+            return
+        cleanup_done = True
+        
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+        if llm:
+            try:
+                await llm.close()
+            except Exception:
+                pass
+    
+    def signal_handler(sig, frame):
+        """Handle Ctrl+C and other signals."""
+        console.print("\n[dim]Cleaning up...[/dim]")
+        # Schedule cleanup in the event loop
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(cleanup())
+        raise KeyboardInterrupt
+    
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     try:
         # Initialize components
@@ -144,16 +178,16 @@ async def _run_async(
             except KeyboardInterrupt:
                 pass
     
+    except KeyboardInterrupt:
+        console.print("[dim]Interrupted[/dim]")
+    
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         logging.exception("Execution failed")
         raise typer.Exit(1)
     
     finally:
-        if browser:
-            await browser.close()
-        if llm:
-            await llm.close()
+        await cleanup()
 
 
 @app.command()
