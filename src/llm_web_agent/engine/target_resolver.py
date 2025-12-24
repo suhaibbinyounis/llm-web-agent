@@ -29,6 +29,7 @@ class ResolutionStrategy(Enum):
     PLAYWRIGHT = "playwright"   # Playwright text= selector
     SMART = "smart"             # Pattern-based selectors
     FUZZY = "fuzzy"             # Interactive element search
+    DYNAMIC = "dynamic"         # Wait for dynamic elements (dropdowns, modals)
     FAILED = "failed"
 
 
@@ -93,12 +94,29 @@ TEXT_FIRST_JS = '''
         return false;
     }
     
+    // Check if element is a code/text editing container (should be skipped for clicks)
+    function isCodeContainer(el) {
+        if (!el) return false;
+        const tag = el.tagName.toLowerCase();
+        if (['textarea', 'pre', 'code'].includes(tag)) return true;
+        if (el.className && typeof el.className === 'string') {
+            const cls = el.className.toLowerCase();
+            if (cls.includes('code') || cls.includes('editor') || cls.includes('syntax')) return true;
+        }
+        if (el.getAttribute('contenteditable') === 'true') return true;
+        return false;
+    }
+    
     // Helper: Find clickable ancestor - prioritize <a> and <button>
     function findClickableAncestor(el) {
         let current = el;
         let fallback = null;
         
         while (current && current !== document.body) {
+            // Skip code containers - they should not be clicked
+            if (isCodeContainer(current)) {
+                return null;  // Don't click into code editors/blocks
+            }
             if (isClickable(current) && isVisible(current)) {
                 return current;  // Found a true clickable
             }
@@ -251,9 +269,17 @@ class TargetResolver:
         target: str,
         intent: Optional[str] = None,
         dom: Optional[Any] = None,
+        wait_timeout: int = 3000,  # Add timeout parameter for dynamic elements
     ) -> ResolvedTarget:
         """
         Resolve target to selector using multiple strategies.
+        
+        Args:
+            page: Browser page
+            target: Element to find (text or selector)
+            intent: Action intent (click, fill, etc.)
+            dom: Optional pre-parsed DOM
+            wait_timeout: Timeout in ms to wait for dynamic elements (for dropdown menus, modals)
         """
         target = target.strip()
         
@@ -287,7 +313,14 @@ class TargetResolver:
         # Strategy 5: Fuzzy search all interactive elements
         result = await self._try_fuzzy_search(page, target, intent)
         if result.is_resolved:
-            logger.info(f"FUZZY found '{target}' with: {result.selector}")
+            logger.info(f"FUZZY found '{target}' with: {result.selector}") 
+            return result
+        
+        # Strategy 6: WAIT for dynamic elements (dropdowns, modals, popovers)
+        # This waits for elements that might appear after an interaction
+        result = await self._try_wait_for_dynamic(page, target, intent, wait_timeout)
+        if result.is_resolved:
+            logger.info(f"DYNAMIC found '{target}' with: {result.selector}")
             return result
         
         logger.warning(f"Could not resolve: {target}")
@@ -536,6 +569,55 @@ class TargetResolver:
             pass
         
         return ""
+    
+    async def _try_wait_for_dynamic(
+        self,
+        page: "IPage",
+        target: str,
+        intent: Optional[str],
+        timeout: int = 3000,
+    ) -> ResolvedTarget:
+        """
+        Wait for dynamic elements like dropdown menus, modals, popovers.
+        
+        These elements only appear in the DOM after a user interaction.
+        Uses wait_for_selector with a timeout.
+        """
+        # Build selectors to wait for
+        core = self._extract_core_text(target)
+        selectors_to_try = [
+            f'text={target}',
+            f'text={core}',
+            f'[role="option"]:has-text("{core}")',   # Dropdown options
+            f'[role="menuitem"]:has-text("{core}")', # Menu items
+            f'[role="listbox"] >> text={core}',      # Listbox items
+            f'li:has-text("{core}")',                # List items
+            f'.MuiMenuItem-root:has-text("{core}")', # MUI menu items
+            f'.MuiListItem-root:has-text("{core}")', # MUI list items
+        ]
+        
+        for selector in selectors_to_try:
+            try:
+                # Wait for the element to appear
+                element = await page.wait_for_selector(
+                    selector,
+                    state="visible",
+                    timeout=timeout
+                )
+                if element:
+                    logger.info(f"DYNAMIC wait found '{target}' with: {selector}")
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        strategy=ResolutionStrategy.DYNAMIC,
+                        confidence=0.75,
+                    )
+            except Exception as e:
+                # Timeout or not found - try next selector
+                logger.debug(f"wait_for_selector failed for {selector}: {e}")
+                continue
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     async def resolve_multiple(
         self,
