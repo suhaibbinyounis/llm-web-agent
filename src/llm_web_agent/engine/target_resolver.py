@@ -476,6 +476,24 @@ class TargetResolver:
                 return result
             self._record_outcome(domain, "synonym", False, synonym_start)
         
+        # Strategy 4.6: Accessibility attributes (name, id, placeholder, aria-label)
+        access_start = time.time()
+        result = await self._try_accessibility(page, target, intent)
+        if result.is_resolved:
+            self._record_outcome(domain, "accessibility", True, access_start)
+            logger.info(f"ACCESSIBILITY found '{target}' with: {result.selector}")
+            return result
+        self._record_outcome(domain, "accessibility", False, access_start)
+        
+        # Strategy 4.7: Form field by label association
+        form_start = time.time()
+        result = await self._try_form_field(page, target, intent)
+        if result.is_resolved:
+            self._record_outcome(domain, "form_field", True, form_start)
+            logger.info(f"FORM_FIELD found '{target}' with: {result.selector}")
+            return result
+        self._record_outcome(domain, "form_field", False, form_start)
+        
         # Strategy 5: Fuzzy search all interactive elements
         fuzzy_start = time.time()
         result = await self._try_fuzzy_search(page, target, intent)
@@ -998,6 +1016,136 @@ class TargetResolver:
         
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
+    async def _try_accessibility(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """
+        Find elements using accessibility attributes.
+        
+        This is excellent for forms because most inputs have:
+        - name, id, placeholder, aria-label attributes
+        
+        Matches target against these attributes.
+        """
+        target_lower = target.lower().strip()
+        
+        # Extract key words from target
+        keywords = [w for w in target_lower.split() if len(w) > 2]
+        
+        # Selectors to try based on accessibility
+        selectors = [
+            # Exact matches
+            f'[name="{target}"]',
+            f'[id="{target}"]',
+            f'[placeholder="{target}"]',
+            f'[aria-label="{target}"]',
+            f'[data-testid="{target}"]',
+            # Case-insensitive partial matches
+            f'[name*="{target_lower}" i]',
+            f'[id*="{target_lower}" i]',
+            f'[placeholder*="{target_lower}" i]',
+            f'[aria-label*="{target_lower}" i]',
+        ]
+        
+        # Add keyword-based selectors
+        for kw in keywords[:3]:  # Limit to 3 keywords
+            selectors.extend([
+                f'[name*="{kw}" i]',
+                f'[id*="{kw}" i]',
+                f'[placeholder*="{kw}" i]',
+            ])
+        
+        for selector in selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element and await element.is_visible():
+                    final_selector = await self._build_element_selector(element)
+                    return ResolvedTarget(
+                        selector=final_selector or selector,
+                        element=element,
+                        strategy=ResolutionStrategy.SMART,
+                        confidence=0.85,
+                    )
+            except Exception:
+                continue
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_form_field(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
+        """
+        Find form fields by associated labels or nearby text.
+        
+        For targets like:
+        - "username field" -> find input near "username" text
+        - "email" -> find label[for] or input with matching id
+        """
+        target_lower = target.lower().strip()
+        
+        # Remove common suffixes
+        for suffix in [" field", " input", " box", " text", " area"]:
+            if target_lower.endswith(suffix):
+                target_lower = target_lower[:-len(suffix)].strip()
+                break
+        
+        # Strategy 1: Label with for attribute
+        try:
+            label = await page.query_selector(f'label:has-text("{target_lower}")')
+            if label:
+                for_attr = await label.get_attribute("for")
+                if for_attr:
+                    input_elem = await page.query_selector(f'#{for_attr}')
+                    if input_elem and await input_elem.is_visible():
+                        return ResolvedTarget(
+                            selector=f"#{for_attr}",
+                            element=input_elem,
+                            strategy=ResolutionStrategy.SMART,
+                            confidence=0.9,
+                        )
+        except Exception:
+            pass
+        
+        # Strategy 2: Input inside label
+        try:
+            input_in_label = await page.query_selector(
+                f'label:has-text("{target_lower}") input, label:has-text("{target_lower}") textarea'
+            )
+            if input_in_label and await input_in_label.is_visible():
+                selector = await self._build_element_selector(input_in_label)
+                return ResolvedTarget(
+                    selector=selector,
+                    element=input_in_label,
+                    strategy=ResolutionStrategy.SMART,
+                    confidence=0.85,
+                )
+        except Exception:
+            pass
+        
+        # Strategy 3: Input near text (using DOM position)
+        try:
+            # Find all inputs/textareas
+            inputs = await page.query_selector_all('input:not([type="hidden"]), textarea, select')
+            
+            for inp in inputs:
+                try:
+                    if not await inp.is_visible():
+                        continue
+                    
+                    # Check attributes
+                    attrs_to_check = ["id", "name", "placeholder", "aria-label"]
+                    for attr_name in attrs_to_check:
+                        attr_val = await inp.get_attribute(attr_name)
+                        if attr_val and target_lower in attr_val.lower():
+                            selector = await self._build_element_selector(inp)
+                            return ResolvedTarget(
+                                selector=selector,
+                                element=inp,
+                                strategy=ResolutionStrategy.SMART,
+                                confidence=0.8,
+                            )
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     async def _try_llm_disambiguation(
         self,
         page: "IPage",
