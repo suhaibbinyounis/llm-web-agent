@@ -355,6 +355,21 @@ class TargetResolver:
         
         start_time = time.time()
         
+        # Check for spatial reference (e.g., "Submit near Email")
+        # Only if indexing is enabled
+        if self._text_index:
+            spatial_match = re.search(r'(.+?)\s+(?:near|next to|close to|beside)\s+(.+)', target, re.I)
+            if spatial_match:
+                target_text = spatial_match.group(1).strip()
+                ref_text = spatial_match.group(2).strip()
+                
+                # Try spatial resolution
+                result = await self._try_spatial_match(page, target_text, ref_text)
+                if result.is_resolved:
+                    self._record_outcome(domain, "spatial", True, start_time)
+                    logger.info(f"SPATIAL found '{target_text}' near '{ref_text}' with: {result.selector}")
+                    return result
+        
         # Extract domain for tracking
         domain = None
         if self._tracker:
@@ -602,6 +617,47 @@ class TargetResolver:
                     )
             except Exception:
                 continue
+                
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_spatial_match(
+        self,
+        page: "IPage",
+        target_text: str,
+        reference_text: str,
+    ) -> ResolvedTarget:
+        """Resolve target based on spatial proximity to reference."""
+        if not self._text_index:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Ensure index is up to date
+        if self._text_index.built_at_url != page.url or self._text_index.is_stale():
+            await self._text_index.build(page)
+        
+        # 1. Find reference element
+        ref_elements = self._text_index.find_phrase(reference_text)
+        if not ref_elements:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Use first visible reference for now
+        # TODO: Handle multiple references better
+        reference_selector = ref_elements[0].selector
+        
+        # 2. Find target near reference
+        match = self._text_index.find_near(target_text, reference_selector)
+        
+        if match:
+            try:
+                element = await page.query_selector(match.selector)
+                if element and await self._is_visible(element):
+                    return ResolvedTarget(
+                        selector=match.selector,
+                        element=element,
+                        strategy=ResolutionStrategy.SMART, # Spatial is a smart capability
+                        confidence=0.85,
+                    )
+            except Exception:
+                pass
                 
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
