@@ -34,15 +34,15 @@ We implement a sophisticated **multi-layered resolution engine** that combines s
 
 ```mermaid
 graph TD
-    A[Request: "Click Submit"] --> B{Layer 1: Fast-Path}
-    B -->|Direct/Index| C(O1 Resolution)
-    B -->|Miss| D{Layer 2: Parallel Race}
-    D -->|Simultaneous| E[Text First]
-    D -->|Simultaneous| F[Playwright]
-    D -->|Simultaneous| G[Smart Selectors]
-    D -->|All Fail| H{Layer 3: Fallback}
-    H -->|Scoring| I[Fuzzy Search]
-    H -->|Async Match| J[Dynamic Wait]
+    A["Request: 'Click Submit'"] --> B{"Layer 1: Fast-Path"}
+    B -->|Direct/Index| C("O1 Resolution")
+    B -->|Miss| D{"Layer 2: Parallel Race"}
+    D -->|Simultaneous| E["Text First"]
+    D -->|Simultaneous| F["Playwright"]
+    D -->|Simultaneous| G["Smart Selectors"]
+    D -->|All Fail| H{"Layer 3: Fallback"}
+    H -->|Scoring| I["Fuzzy Search"]
+    H -->|Async Match| J["Dynamic Wait"]
     
     style C fill:#9f9,stroke:#333
     style D fill:#bbf,stroke:#333
