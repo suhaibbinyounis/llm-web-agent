@@ -209,7 +209,7 @@ LLM_WEB_AGENT__BROWSER__HEADLESS=true
 |----------|--------------|
 | OpenAI | `OPENAI_API_KEY` |
 | Anthropic | `ANTHROPIC_API_KEY` |
-| GitHub Copilot | Via [copilot-api-gateway](https://github.com/suhaibbinyounis/copilot-api-gateway) |
+| GitHub Copilot | Via [github-copilot-api-vscode](https://github.com/suhaibbinyounis/github-copilot-api-vscode) |
 | Local LLMs | Any OpenAI-compatible endpoint |
 
 ---
