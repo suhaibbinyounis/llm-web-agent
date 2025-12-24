@@ -7,12 +7,15 @@ Strategies (tried in order):
 3. PLAYWRIGHT_TEXT - Use Playwright's built-in text= selector
 4. SMART_SELECTORS - Try various selector patterns
 5. INTERACTIVE_SEARCH - Score all visible interactive elements
+6. DYNAMIC - Wait for elements that appear after interaction
 """
 
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+import asyncio
 import re
+import time
 import logging
 
 if TYPE_CHECKING:
@@ -102,15 +105,43 @@ TEXT_FIRST_JS = r'''
     }
     
     // Check if element is a code/text editing container (should be skipped for clicks)
+    // Uses both structural (tag/class) and semantic (content pattern) detection
     function isCodeContainer(el) {
         if (!el) return false;
         const tag = el.tagName.toLowerCase();
+        
+        // Structural: Known code container tags
         if (['textarea', 'pre', 'code'].includes(tag)) return true;
+        
+        // Structural: Known code editor class names
         if (el.className && typeof el.className === 'string') {
             const cls = el.className.toLowerCase();
-            if (cls.includes('code') || cls.includes('editor') || cls.includes('syntax')) return true;
+            const codeClasses = ['code', 'editor', 'syntax', 'highlight', 'prism', 'monaco', 
+                                 'codemirror', 'ace_', 'hljs', 'shiki', 'codeblock'];
+            if (codeClasses.some(c => cls.includes(c))) return true;
         }
+        
+        // Structural: Contenteditable code blocks
         if (el.getAttribute('contenteditable') === 'true') return true;
+        if (el.getAttribute('data-language')) return true;
+        if (el.getAttribute('data-code')) return true;
+        
+        // Semantic: Check if content looks like code
+        const text = el.innerText || '';
+        if (text.length > 30 && text.length < 5000) {
+            const codePatterns = [
+                /^\s*(import|from|const|let|var|function|class|def|return|export)\s/m,
+                /[{}\[\]();=]\s*$/m,  // Ends with code punctuation
+                /<[A-Z][a-zA-Z]+\s/,  // JSX/React components
+                /\.(map|filter|reduce|forEach|then|catch)\(/,  // JS methods
+                /=>\s*{/,  // Arrow functions
+                /^\s*@\w+/m,  // Decorators
+                /^\s*(public|private|protected)\s/m,  // Class members
+            ];
+            const matchCount = codePatterns.filter(p => p.test(text)).length;
+            if (matchCount >= 2) return true;  // Multiple code patterns = likely code
+        }
+        
         return false;
     }
     
@@ -260,15 +291,30 @@ class TargetResolver:
     3. Playwright text selector
     4. Smart pattern selectors
     5. Fuzzy interactive element search
+    6. Dynamic element waiting (for dropdowns, modals)
+    
+    Includes:
+    - Parallel strategy execution for speed
+    - Strategy success tracking for adaptive ordering
+    - Exponential backoff for dynamic elements
     """
     
     def __init__(
         self,
         llm_provider: Optional["ILLMProvider"] = None,
         fuzzy_threshold: float = 0.5,
+        enable_tracking: bool = True,
     ):
         self._llm = llm_provider
         self._fuzzy_threshold = fuzzy_threshold
+        self._enable_tracking = enable_tracking
+        self._tracker = None
+        if enable_tracking:
+            try:
+                from llm_web_agent.engine.strategy_tracker import get_tracker
+                self._tracker = get_tracker()
+            except ImportError:
+                logger.debug("Strategy tracker not available")
     
     async def resolve(
         self,
@@ -277,6 +323,7 @@ class TargetResolver:
         intent: Optional[str] = None,
         dom: Optional[Any] = None,
         wait_timeout: int = 3000,  # Add timeout parameter for dynamic elements
+        parallel: bool = True,  # Use parallel resolution for speed
     ) -> ResolvedTarget:
         """
         Resolve target to selector using multiple strategies.
@@ -287,50 +334,186 @@ class TargetResolver:
             intent: Action intent (click, fill, etc.)
             dom: Optional pre-parsed DOM
             wait_timeout: Timeout in ms to wait for dynamic elements (for dropdown menus, modals)
+            parallel: If True, race fast strategies in parallel for speed
         """
         target = target.strip()
         
         if not target:
             return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
         
-        # Strategy 1: Direct selector
+        start_time = time.time()
+        
+        # Extract domain for tracking
+        domain = None
+        if self._tracker:
+            try:
+                from urllib.parse import urlparse
+                domain = urlparse(page.url).netloc
+            except Exception:
+                pass
+        
+        # Strategy 1: Direct selector (always first, very fast)
         if self._is_selector(target):
             result = await self._try_direct_selector(page, target)
             if result.is_resolved:
+                self._record_outcome(domain, "direct", True, start_time)
                 return result
         
-        # Strategy 2: Text-first (human-like) - NEW!
-        result = await self._try_text_first(page, target, intent)
-        if result.is_resolved:
-            logger.info(f"TEXT_FIRST found '{target}' with: {result.selector}")
-            return result
+        if parallel:
+            # Run fast strategies in parallel - return first success
+            result = await self._resolve_parallel(page, target, intent, domain)
+            if result.is_resolved:
+                elapsed = (time.time() - start_time) * 1000
+                logger.info(f"{result.strategy.value.upper()} found '{target}' with: {result.selector} ({elapsed:.0f}ms)")
+                return result
+        else:
+            # Sequential fallback
+            result = await self._resolve_sequential(page, target, intent, domain)
+            if result.is_resolved:
+                return result
         
-        # Strategy 3: Playwright text selector
-        result = await self._try_playwright_text(page, target, intent)
-        if result.is_resolved:
-            logger.info(f"PLAYWRIGHT found '{target}' with: {result.selector}")
-            return result
-        
-        # Strategy 4: Smart selectors based on intent
-        result = await self._try_smart_selectors(page, target, intent)
-        if result.is_resolved:
-            logger.info(f"SMART found '{target}' with: {result.selector}")
-            return result
-        
+        # Slower strategies (always sequential)
         # Strategy 5: Fuzzy search all interactive elements
+        fuzzy_start = time.time()
         result = await self._try_fuzzy_search(page, target, intent)
         if result.is_resolved:
+            self._record_outcome(domain, "fuzzy", True, fuzzy_start)
             logger.info(f"FUZZY found '{target}' with: {result.selector}") 
             return result
+        self._record_outcome(domain, "fuzzy", False, fuzzy_start)
         
         # Strategy 6: WAIT for dynamic elements (dropdowns, modals, popovers)
         # This waits for elements that might appear after an interaction
+        dynamic_start = time.time()
         result = await self._try_wait_for_dynamic(page, target, intent, wait_timeout)
         if result.is_resolved:
+            self._record_outcome(domain, "dynamic", True, dynamic_start)
             logger.info(f"DYNAMIC found '{target}' with: {result.selector}")
             return result
+        self._record_outcome(domain, "dynamic", False, dynamic_start)
         
         logger.warning(f"Could not resolve: {target}")
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    def _record_outcome(
+        self,
+        domain: Optional[str],
+        strategy: str,
+        success: bool,
+        start_time: float,
+    ) -> None:
+        """Record strategy outcome for adaptive learning."""
+        if not self._tracker or not domain:
+            return
+        elapsed_ms = (time.time() - start_time) * 1000
+        try:
+            self._tracker.record(domain, strategy, success, elapsed_ms)
+        except Exception as e:
+            logger.debug(f"Failed to record strategy outcome: {e}")
+    
+    async def _resolve_parallel(
+        self,
+        page: "IPage",
+        target: str,
+        intent: Optional[str],
+        domain: Optional[str] = None,
+    ) -> ResolvedTarget:
+        """
+        Run fast strategies in parallel and return first success.
+        This is much faster when the first strategy would fail.
+        """
+        start_times = {}
+        
+        # Create tasks for parallel execution
+        async def timed_strategy(name: str, coro):
+            start_times[name] = time.time()
+            return await coro
+        
+        tasks = [
+            asyncio.create_task(
+                timed_strategy("text_first", self._try_text_first(page, target, intent)),
+                name="text_first"
+            ),
+            asyncio.create_task(
+                timed_strategy("playwright", self._try_playwright_text(page, target, intent)),
+                name="playwright"
+            ),
+            asyncio.create_task(
+                timed_strategy("smart", self._try_smart_selectors(page, target, intent)),
+                name="smart"
+            ),
+        ]
+        
+        # Track which strategies completed
+        completed_strategies = set()
+        winning_strategy = None
+        
+        # Wait for first success or all to complete
+        pending = set(tasks)
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            
+            for task in done:
+                strategy_name = task.get_name()
+                completed_strategies.add(strategy_name)
+                try:
+                    result = task.result()
+                    if result.is_resolved:
+                        winning_strategy = strategy_name
+                        # Record success
+                        self._record_outcome(domain, strategy_name, True, start_times.get(strategy_name, time.time()))
+                        # Cancel remaining tasks
+                        for p in pending:
+                            p.cancel()
+                            # Record incomplete as failed (they didn't find it first)
+                            self._record_outcome(domain, p.get_name(), False, start_times.get(p.get_name(), time.time()))
+                        return result
+                    else:
+                        # Strategy completed but didn't find element
+                        self._record_outcome(domain, strategy_name, False, start_times.get(strategy_name, time.time()))
+                except Exception as e:
+                    logger.debug(f"Strategy {strategy_name} failed: {e}")
+                    self._record_outcome(domain, strategy_name, False, start_times.get(strategy_name, time.time()))
+                    continue
+        
+        # All parallel strategies failed
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _resolve_sequential(
+        self,
+        page: "IPage",
+        target: str,
+        intent: Optional[str],
+        domain: Optional[str] = None,
+    ) -> ResolvedTarget:
+        """Sequential resolution (fallback mode)."""
+        # Strategy 2: Text-first (human-like)
+        start = time.time()
+        result = await self._try_text_first(page, target, intent)
+        if result.is_resolved:
+            self._record_outcome(domain, "text_first", True, start)
+            logger.info(f"TEXT_FIRST found '{target}' with: {result.selector}")
+            return result
+        self._record_outcome(domain, "text_first", False, start)
+        
+        # Strategy 3: Playwright text selector
+        start = time.time()
+        result = await self._try_playwright_text(page, target, intent)
+        if result.is_resolved:
+            self._record_outcome(domain, "playwright", True, start)
+            logger.info(f"PLAYWRIGHT found '{target}' with: {result.selector}")
+            return result
+        self._record_outcome(domain, "playwright", False, start)
+        
+        # Strategy 4: Smart selectors based on intent
+        start = time.time()
+        result = await self._try_smart_selectors(page, target, intent)
+        if result.is_resolved:
+            self._record_outcome(domain, "smart", True, start)
+            logger.info(f"SMART found '{target}' with: {result.selector}")
+            return result
+        self._record_outcome(domain, "smart", False, start)
+        
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     def _is_selector(self, target: str) -> bool:
@@ -588,7 +771,7 @@ class TargetResolver:
         Wait for dynamic elements like dropdown menus, modals, popovers.
         
         These elements only appear in the DOM after a user interaction.
-        Uses wait_for_selector with a timeout.
+        Uses wait_for_selector with exponential backoff for adaptive timeouts.
         """
         # Build selectors to wait for
         core = self._extract_core_text(target)
@@ -603,26 +786,31 @@ class TargetResolver:
             f'.MuiListItem-root:has-text("{core}")', # MUI list items
         ]
         
-        for selector in selectors_to_try:
-            try:
-                # Wait for the element to appear
-                element = await page.wait_for_selector(
-                    selector,
-                    state="visible",
-                    timeout=timeout
-                )
-                if element:
-                    logger.info(f"DYNAMIC wait found '{target}' with: {selector}")
-                    return ResolvedTarget(
-                        selector=selector,
-                        element=element,
-                        strategy=ResolutionStrategy.DYNAMIC,
-                        confidence=0.75,
+        # Exponential backoff: start fast, increase timeout progressively
+        # This allows quick failure for non-existent elements while waiting for slow ones
+        backoff_timeouts = [100, 300, 1000, timeout]
+        
+        for wait_timeout in backoff_timeouts:
+            for selector in selectors_to_try:
+                try:
+                    # Wait for the element to appear
+                    element = await page.wait_for_selector(
+                        selector,
+                        state="visible",
+                        timeout=wait_timeout
                     )
-            except Exception as e:
-                # Timeout or not found - try next selector
-                logger.debug(f"wait_for_selector failed for {selector}: {e}")
-                continue
+                    if element:
+                        logger.info(f"DYNAMIC wait found '{target}' with: {selector} (timeout={wait_timeout}ms)")
+                        return ResolvedTarget(
+                            selector=selector,
+                            element=element,
+                            strategy=ResolutionStrategy.DYNAMIC,
+                            confidence=0.75,
+                        )
+                except Exception as e:
+                    # Timeout or not found - try next selector/timeout
+                    logger.debug(f"wait_for_selector failed for {selector} (timeout={wait_timeout}ms)")
+                    continue
         
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
