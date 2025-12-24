@@ -79,7 +79,7 @@ class InstructionParser:
          StepIntent.CLICK, {"target": 1}),
         
         # Only "press" on non-key things (like buttons)
-        (re.compile(r'^press\s+(?:the\s+)?(.+?)\s+(?:button|link)$', re.I),
+        (re.compile(r'^press\s+(?:the\s+)?(.+\s+(?:button|link))$', re.I),
          StepIntent.CLICK, {"target": 1}),
         
         # Fill/Type
