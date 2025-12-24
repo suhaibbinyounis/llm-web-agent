@@ -28,21 +28,34 @@ This project explores a critical question in AI-driven browser automation:
 
 ## 🎯 Key Research Contributions
 
-### 1. Multi-Strategy Element Resolution
+### 1. Intelligent Resolution Architecture (v2)
 
-We implement a **6-layer resolution strategy** that prioritizes speed while maintaining robustness:
+We implement a sophisticated **multi-layered resolution engine** that combines speed, adaptability, and robustness:
 
+```mermaid
+graph TD
+    A[Request: "Click Submit"] --> B{Layer 1: Fast-Path}
+    B -->|Direct/Index| C(O1 Resolution)
+    B -->|Miss| D{Layer 2: Parallel Race}
+    D -->|Simultaneous| E[Text First]
+    D -->|Simultaneous| F[Playwright]
+    D -->|Simultaneous| G[Smart Selectors]
+    D -->|All Fail| H{Layer 3: Fallback}
+    H -->|Scoring| I[Fuzzy Search]
+    H -->|Async Match| J[Dynamic Wait]
+    
+    style C fill:#9f9,stroke:#333
+    style D fill:#bbf,stroke:#333
+    style H fill:#f9f,stroke:#333
 ```
-Resolution Order (fastest → most robust):
-1. DIRECT     → CSS/XPath selector if provided
-2. TEXT_FIRST → Human-like: find text, climb to clickable ancestor
-3. PLAYWRIGHT → Playwright's built-in text matching
-4. SMART      → Pattern-based selectors (placeholders, attributes)
-5. FUZZY      → Score all visible interactive elements
-6. DYNAMIC    → Wait for elements that appear after interaction
-```
 
-**Key Innovation**: The `TEXT_FIRST` strategy mimics human behavior — "see text, find clickable parent, click" — implemented via JavaScript TreeWalker for sub-second resolution.
+**Key Innovations:**
+
+*   **O(1) Text Indexing**: Builds an inverted index of the page for instant lookups, treating the DOM like a database.
+*   **Parallel Execution**: Races 3 different strategies simultaneously (Text, Playwright, Smart) instead of trying them sequentially.
+*   **Spatial Resolution**: Understands layout queries like *"Click Submit near Email"* using the spatial index.
+*   **Adaptive Learning**: Tracks success rates per-domain and auto-adjusts strategy ordering (e.g., learns that `TextFirst` works best on GitHub but `Playwright` works best on React sites).
+*   **Exponential Backoff**: Adaptive waiting (100ms → 3s) for dynamic elements to appear.
 
 ### 2. Framework-Agnostic Design
 
@@ -61,16 +74,18 @@ Web pages often contain code samples that should NOT be clicked. Our `isCodeCont
 - `<textarea>`, `<pre>`, `<code>` elements
 - Elements with classes containing "code", "editor", "syntax"
 - `contenteditable` elements
+- **Semantic patterns** like `import`, `function`, `=>`, JSX syntax.
 
 This prevents the agent from mistakenly interacting with documentation code samples.
 
 ### 4. Dynamic Element Handling
 
-Modern web apps use dropdowns, modals, and popovers that only appear after interaction. Our `DYNAMIC` strategy uses Playwright's `waitForSelector` to handle:
-- Dropdown menu options
-- Modal dialog content
-- Popover menus
-- React-Select components
+Modern web apps use dropdowns, modals, and popovers that only appear after interaction. Our `DYNAMIC` strategy uses:
+- **Exponential Backoff**: Adaptive waits (100ms, 300ms, 1s, 3s)
+- **Action Context**: Tracks newly appeared elements after a click
+- Playwright's `waitForSelector` for reliable visibility
+
+This successfully handles dropdown options, modals, and popovers without explicit waits.
 
 ---
 
