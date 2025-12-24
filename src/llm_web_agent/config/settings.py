@@ -40,6 +40,10 @@ class BrowserSettings(BaseModel):
     # Browser type (chromium, firefox, webkit) - only for playwright
     browser_type: Literal["chromium", "firefox", "webkit"] = "chromium"
     
+    # Browser channel - use installed Chrome or Edge instead of bundled Chromium
+    # Options: "chrome", "chrome-beta", "msedge", "msedge-beta", "msedge-dev", or None for bundled
+    browser_channel: Optional[Literal["chrome", "chrome-beta", "msedge", "msedge-beta", "msedge-dev"]] = None
+    
     # Download settings
     downloads_path: Optional[str] = None
     accept_downloads: bool = True

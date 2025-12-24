@@ -254,9 +254,22 @@ class PlaywrightBrowser(IBrowser):
         self,
         headless: bool = True,
         browser_type: BrowserType = BrowserType.CHROMIUM,
+        channel: Optional[str] = None,
         **options: Any,
     ) -> None:
-        """Launch the browser."""
+        """
+        Launch the browser.
+        
+        Args:
+            headless: Run browser in headless mode
+            browser_type: Type of browser (chromium, firefox, webkit)
+            channel: Browser channel to use:
+                - "chrome" - Google Chrome
+                - "chrome-beta" - Google Chrome Beta
+                - "msedge" - Microsoft Edge
+                - "msedge-beta" - Microsoft Edge Beta
+                - None - Use bundled Chromium/Firefox/WebKit
+        """
         from playwright.async_api import async_playwright
         
         self._playwright = await async_playwright().start()
@@ -269,12 +282,15 @@ class PlaywrightBrowser(IBrowser):
         else:
             browser_launcher = self._playwright.chromium
         
-        self._browser = await browser_launcher.launch(
-            headless=headless,
-            **options,
-        )
+        # Add channel if specified (for Chrome/Edge)
+        launch_options = {"headless": headless, **options}
+        if channel and browser_type == BrowserType.CHROMIUM:
+            launch_options["channel"] = channel
         
-        logger.info(f"Launched {browser_type.value} browser (headless={headless})")
+        self._browser = await browser_launcher.launch(**launch_options)
+        
+        channel_info = f" ({channel})" if channel else ""
+        logger.info(f"Launched {browser_type.value}{channel_info} browser (headless={headless})")
     
     async def new_page(self, **options: Any) -> PlaywrightPage:
         """Create a new page."""

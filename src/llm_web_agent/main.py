@@ -46,6 +46,7 @@ def setup_logging(verbose: bool = False):
 def run(
     instruction: str = typer.Argument(..., help="Natural language instruction to execute"),
     visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
+    browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
     timeout: int = typer.Option(60, "--timeout", "-t", help="Max execution time in seconds"),
@@ -54,15 +55,27 @@ def run(
     """
     Execute a natural language instruction in the browser.
     
+    Browser options:
+        --browser chromium  (default, bundled)
+        --browser chrome    (Google Chrome)
+        --browser msedge    (Microsoft Edge)
+    
     Examples:
-        llm-web-agent run "go to google.com"
-        llm-web-agent run "search for cats on google" --visible
-        llm-web-agent run "login to twitter" -v --model gpt-4.1
+        llm-web-agent run "go to google.com" --browser chrome
+        llm-web-agent run "search for cats" --visible -b msedge
     """
     setup_logging(verbose)
     
+    # Parse browser option
+    channel = None
+    if browser in ("chrome", "chrome-beta", "msedge", "msedge-beta"):
+        channel = browser
+    
+    browser_label = browser if browser != "chromium" else "Chromium"
+    
     console.print(Panel.fit(
-        f"[bold blue]LLM Web Agent[/bold blue]\n"
+        f"[bold blue]🤖 LLM Web Agent[/bold blue]\n"
+        f"[dim]Browser:[/dim] {browser_label}\n"
         f"[dim]Instruction:[/dim] {instruction}",
         border_style="blue",
     ))
@@ -70,6 +83,7 @@ def run(
     asyncio.run(_run_async(
         instruction=instruction,
         headless=not visible,
+        browser_channel=channel,
         model=model,
         api_url=api_url,
         timeout=timeout,
@@ -82,6 +96,7 @@ async def _run_async(
     model: str,
     api_url: str,
     timeout: int,
+    browser_channel: Optional[str] = None,
 ):
     """Run the agent asynchronously with proper cleanup."""
     import signal
@@ -126,7 +141,7 @@ async def _run_async(
         console.print("\n[dim]Initializing...[/dim]")
         
         browser = PlaywrightBrowser()
-        await browser.launch(headless=headless)
+        await browser.launch(headless=headless, channel=browser_channel)
         
         llm = OpenAIProvider(base_url=api_url, model=model)
         
@@ -194,6 +209,7 @@ async def _run_async(
 def run_file(
     file_path: str = typer.Argument(..., help="Path to instruction file (.txt)"),
     visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
+    browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
     timeout: int = typer.Option(120, "--timeout", "-t", help="Max execution time in seconds"),
@@ -205,7 +221,7 @@ def run_file(
     Each line is executed as a separate instruction.
     
     Examples:
-        llm-web-agent run-file instructions/mui_demo.txt --visible
+        llm-web-agent run-file instructions/mui_demo.txt --visible --browser chrome
     """
     import pathlib
     from rich.table import Table
@@ -252,10 +268,16 @@ def run_file(
     console.print(table)
     console.print()
     
+    # Parse browser option
+    channel = None
+    if browser in ("chrome", "chrome-beta", "msedge", "msedge-beta"):
+        channel = browser
+    
     # Run with sequential execution per line
     asyncio.run(_run_file_async(
         instructions=instructions,
         headless=not visible,
+        browser_channel=channel,
         model=model,
         api_url=api_url,
         timeout=timeout,
@@ -268,6 +290,7 @@ async def _run_file_async(
     model: str,
     api_url: str,
     timeout: int,
+    browser_channel: Optional[str] = None,
 ):
     """Run instructions from file - each line separately."""
     import signal
@@ -317,7 +340,7 @@ async def _run_file_async(
         # Now launch browser
         console.print("[dim]⏳ Launching browser...[/dim]")
         browser = PlaywrightBrowser()
-        await browser.launch(headless=headless)
+        await browser.launch(headless=headless, channel=browser_channel)
         console.print(f"[green]✓ Browser ready[/green]")
         console.print()
         
