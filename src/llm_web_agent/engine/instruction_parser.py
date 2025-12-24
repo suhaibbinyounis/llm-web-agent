@@ -82,24 +82,33 @@ class InstructionParser:
          StepIntent.PRESS_KEY, {"value": 1}),
         
         # Click
-        (re.compile(r'^click\s+(?:on\s+)?(?:the\s+)?(.+)$', re.I),
+        (re.compile(r'^(?:\d+\.?\s*)?click\s+(?:on\s+)?(?:the\s+)?(.+)$', re.I),
          StepIntent.CLICK, {"target": 1}),
         
-        (re.compile(r'^(?:tap|select|choose)\s+(?:the\s+)?(.+)$', re.I),
+        (re.compile(r'^(?:\d+\.?\s*)?(?:tap|select|choose)\s+(?:the\s+)?(.+)$', re.I),
          StepIntent.CLICK, {"target": 1}),
         
         # Only "press" on non-key things (like buttons)
-        (re.compile(r'^press\s+(?:the\s+)?(.+\s+(?:button|link))$', re.I),
+        (re.compile(r'^(?:\d+\.?\s*)?press\s+(?:the\s+)?(.+\s+(?:button|link))$', re.I),
          StepIntent.CLICK, {"target": 1}),
         
-        # Fill/Type
-        (re.compile(r'^(?:type|enter|input)\s+["\']?(.+?)["\']?\s+(?:in(?:to)?|on)\s+(?:the\s+)?(.+)$', re.I),
+        # Fill/Type - with "in/into/on" keyword
+        (re.compile(r'^(?:\d+\.?\s*)?(?:type|enter|input)\s+["\']?(.+?)["\']?\s+(?:in(?:to)?|on)\s+(?:the\s+)?(.+)$', re.I),
          StepIntent.FILL, {"value": 1, "target": 2}),
         
-        (re.compile(r'^fill\s+(?:in\s+)?(?:the\s+)?(.+?)\s+(?:with|as)\s+["\']?(.+?)["\']?$', re.I),
+        # Fill/Type - simple format: "Enter username value" or "Enter password value"
+        # Matches: "Enter username standard_user", "3. Enter password secret_sauce"
+        (re.compile(r'^(?:\d+\.?\s*)?enter\s+(username|password|email|name|first\s*name|last\s*name)\s+(.+)$', re.I),
          StepIntent.FILL, {"target": 1, "value": 2}),
         
-        (re.compile(r'^(?:set|put)\s+["\']?(.+?)["\']?\s+(?:in(?:to)?|as)\s+(?:the\s+)?(.+)$', re.I),
+        # Fill/Type - "Type value" with quoted text
+        (re.compile(r'^(?:\d+\.?\s*)?(?:type|enter)\s+(?:the\s+)?(?:text\s+)?["\'](.+?)["\']\.?$', re.I),
+         StepIntent.TYPE, {"value": 1}),
+        
+        (re.compile(r'^(?:\d+\.?\s*)?fill\s+(?:in\s+)?(?:the\s+)?(.+?)\s+(?:with|as)\s+["\']?(.+?)["\']?$', re.I),
+         StepIntent.FILL, {"target": 1, "value": 2}),
+        
+        (re.compile(r'^(?:\d+\.?\s*)?(?:set|put)\s+["\']?(.+?)["\']?\s+(?:in(?:to)?|as)\s+(?:the\s+)?(.+)$', re.I),
          StepIntent.FILL, {"value": 1, "target": 2}),
         
         # Extract/Copy
