@@ -133,11 +133,13 @@ class InstructionParser:
         (re.compile(r'^scroll\s+to\s+(?:the\s+)?(.+)$', re.I),
          StepIntent.SCROLL, {"target": 1}),
         
-        # Wait
-        (re.compile(r'^wait\s+(?:for\s+)?(\d+)\s*(?:seconds?|s)$', re.I),
+        # Wait - NUMERIC FIRST (must come before element wait)
+        # Matches: "wait 2", "wait for 3", "wait 5 seconds", "wait for 1s"
+        (re.compile(r'^wait\s+(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:seconds?|s|ms)?$', re.I),
          StepIntent.WAIT, {"value": 1}),
         
-        (re.compile(r'^wait\s+(?:for\s+)?(?:the\s+)?(.+?)(?:\s+to\s+(?:load|appear))?$', re.I),
+        # Wait for element (only when NOT numeric)
+        (re.compile(r'^wait\s+(?:for\s+)?(?:the\s+)?([a-zA-Z].+?)(?:\s+to\s+(?:load|appear))?$', re.I),
          StepIntent.WAIT, {"target": 1}),
         
         # Submit

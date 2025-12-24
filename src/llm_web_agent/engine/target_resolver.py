@@ -1090,11 +1090,13 @@ class TargetResolver:
             f'[placeholder="{target}"]',
             f'[aria-label="{target}"]',
             f'[data-testid="{target}"]',
+            f'[data-test="{target}"]',  # saucedemo uses this
             # Case-insensitive partial matches
             f'[name*="{target_lower}" i]',
             f'[id*="{target_lower}" i]',
             f'[placeholder*="{target_lower}" i]',
             f'[aria-label*="{target_lower}" i]',
+            f'[data-test*="{target_lower}" i]',
         ]
         
         # Add keyword-based selectors
@@ -1365,12 +1367,26 @@ class TargetResolver:
         if text in target and len(text) > 2:
             return 0.8
         
+        # SEMANTIC REJECTION: Check key words are compatible
+        # E.g., "add-to-cart" should NOT match "back-to-products"
+        text_words = set(text.replace('-', ' ').replace('_', ' ').split())
+        target_clean = target.replace('-', ' ').replace('_', ' ')
+        target_words_clean = set(target_clean.split())
+        
+        # Extract key action words
+        action_words = {'add', 'remove', 'back', 'next', 'continue', 'finish', 'cancel', 'submit', 'login', 'logout', 'checkout', 'cart'}
+        target_actions = target_words_clean & action_words
+        text_actions = text_words & action_words
+        
+        # If both have action words but different ones, reject completely
+        if target_actions and text_actions and not (target_actions & text_actions):
+            return 0.0  # Semantic mismatch!
+        
         # Word overlap (e.g., "Get started" vs "Getting started" share "started")
-        text_words = set(text.split())
-        if target_words and text_words:
+        if target_words_clean and text_words:
             # Check for common root words (start → started, starting)
             overlap = 0
-            for tw in target_words:
+            for tw in target_words_clean:
                 for ew in text_words:
                     if tw in ew or ew in tw:
                         overlap += 1
@@ -1381,7 +1397,7 @@ class TargetResolver:
                         break
             
             if overlap > 0:
-                ratio = overlap / max(len(target_words), len(text_words))
+                ratio = overlap / max(len(target_words_clean), len(text_words))
                 return 0.5 + (ratio * 0.35)  # 0.5 to 0.85
         
         # Levenshtein-like ratio for short strings
