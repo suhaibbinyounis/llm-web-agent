@@ -154,7 +154,7 @@ class TestDirectSelector:
         element = MockElement(attrs={"id": "login-btn"})
         page = MockPage({"#login-btn": element})
         
-        resolver = TargetResolver()
+        resolver = TargetResolver(enable_indexing=False)
         result = await resolver.resolve(page, "#login-btn")
         
         assert result.is_resolved is True
@@ -174,7 +174,7 @@ class TestResolverIntegration:
         )
         page = MockPage({"#signin-btn": element})
         
-        resolver = TargetResolver()
+        resolver = TargetResolver(enable_indexing=False)
         result = await resolver.resolve(page, "#signin-btn", intent="click")
         
         assert result.is_resolved is True
@@ -185,7 +185,7 @@ class TestResolverIntegration:
         """Test resolution fails gracefully when not found."""
         page = MockPage({})
         
-        resolver = TargetResolver()
+        resolver = TargetResolver(enable_indexing=False)
         result = await resolver.resolve(page, "nonexistent element xyz")
         
         assert result.is_resolved is False
@@ -197,7 +197,7 @@ class TestResolverIntegration:
         """Test empty target fails immediately."""
         page = MockPage({})
         
-        resolver = TargetResolver()
+        resolver = TargetResolver(enable_indexing=False)
         result = await resolver.resolve(page, "")
         
         assert result.is_resolved is False
@@ -218,7 +218,7 @@ class TestResolveMultiple:
             "[name='password']": elem2,
         })
         
-        resolver = TargetResolver()
+        resolver = TargetResolver(enable_indexing=False)
         targets = {
             "email_field": "#email",
             "password_field": "#password",

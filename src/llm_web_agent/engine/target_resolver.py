@@ -297,6 +297,7 @@ class TargetResolver:
     - Parallel strategy execution for speed
     - Strategy success tracking for adaptive ordering
     - Exponential backoff for dynamic elements
+    - Optional text indexing for O(1) lookups
     """
     
     def __init__(
@@ -304,17 +305,28 @@ class TargetResolver:
         llm_provider: Optional["ILLMProvider"] = None,
         fuzzy_threshold: float = 0.5,
         enable_tracking: bool = True,
+        enable_indexing: bool = True,
     ):
         self._llm = llm_provider
         self._fuzzy_threshold = fuzzy_threshold
         self._enable_tracking = enable_tracking
+        self._enable_indexing = enable_indexing
         self._tracker = None
+        self._text_index = None
+        
         if enable_tracking:
             try:
                 from llm_web_agent.engine.strategy_tracker import get_tracker
                 self._tracker = get_tracker()
             except ImportError:
                 logger.debug("Strategy tracker not available")
+        
+        if enable_indexing:
+            try:
+                from llm_web_agent.engine.text_index import TextIndex
+                self._text_index = TextIndex()
+            except ImportError:
+                logger.debug("Text index not available")
     
     async def resolve(
         self,
@@ -357,6 +369,15 @@ class TargetResolver:
             result = await self._try_direct_selector(page, target)
             if result.is_resolved:
                 self._record_outcome(domain, "direct", True, start_time)
+                return result
+        
+        # Strategy 1.5: Text index fast-path (O(1) lookup)
+        if self._text_index:
+            result = await self._try_text_index(page, target, intent)
+            if result.is_resolved:
+                self._record_outcome(domain, "index", True, start_time)
+                elapsed = (time.time() - start_time) * 1000
+                logger.info(f"INDEX found '{target}' with: {result.selector} ({elapsed:.0f}ms)")
                 return result
         
         if parallel:
@@ -538,6 +559,50 @@ class TargetResolver:
                 )
         except Exception:
             pass
+        return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+    
+    async def _try_text_index(
+        self,
+        page: "IPage",
+        target: str,
+        intent: Optional[str] = None
+    ) -> ResolvedTarget:
+        """Try to resolve using pre-built text index (O(1))."""
+        if not self._text_index:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Build index if needed
+        if self._text_index.built_at_url != page.url or self._text_index.is_stale():
+            await self._text_index.build(page)
+        
+        # Look for match
+        elements = self._text_index.find_phrase(target)
+        if not elements:
+            # Fallback: simple case-insensitive word match if target is single word
+            if " " not in target.strip():
+                elements = self._text_index.find_word(target)
+        
+        if not elements:
+            return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
+        
+        # Iterate candidates and verify visibility
+        for indexed_elem in elements:
+            try:
+                # If intent is click, skip non-clickable unless it's the only match
+                if intent in ('click', 'press', 'tap') and not indexed_elem.is_clickable and len(elements) > 1:
+                    continue
+                
+                element = await page.query_selector(indexed_elem.selector)
+                if element and await self._is_visible(element):
+                    return ResolvedTarget(
+                        selector=indexed_elem.selector,
+                        element=element,
+                        strategy=ResolutionStrategy.DIRECT, # It's effectively a direct hit
+                        confidence=0.95,
+                    )
+            except Exception:
+                continue
+                
         return ResolvedTarget(selector="", strategy=ResolutionStrategy.FAILED)
     
     async def _try_text_first(self, page: "IPage", target: str, intent: Optional[str]) -> ResolvedTarget:
