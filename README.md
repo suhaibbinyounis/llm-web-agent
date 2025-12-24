@@ -34,9 +34,9 @@ We implement a sophisticated **multi-layered resolution engine** that combines s
 
 ```mermaid
 graph TD
-    A["Request: 'Click Submit'"] --> B{"Layer 0: DOMMap"}
-    B -->|O(1) Multi-Index| C["Fingerprint + Selector"]
-    B -->|Miss| D{"Layer 1: Direct/Index"}
+    A["Request: Click Submit"] --> B{"Layer 0: DOMMap"}
+    B -->|Multi-Index Lookup| C["Fingerprint + Selector"]
+    B -->|Miss| D{"Layer 1: Direct"}
     D -->|Direct Selector| E["CSS/XPath Match"]
     D -->|Miss| F{"Layer 2: Parallel Race"}
     F -->|Simultaneous| G["Text First"]
