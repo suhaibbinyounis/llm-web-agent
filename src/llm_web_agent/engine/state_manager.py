@@ -70,11 +70,21 @@ class StateManager:
     
     async def get_state(self, page: "IPage") -> PageState:
         """Get current page state snapshot."""
+        try:
+            title = await page.title()
+        except Exception:
+            title = ""
+        
+        try:
+            element_count = len(await page.query_selector_all("*"))
+        except Exception:
+            element_count = 0
+        
         return PageState(
             url=page.url,
-            title=await page.title(),
+            title=title,
             timestamp=datetime.now(),
-            element_count=len(await page.query_selector_all("*")),
+            element_count=element_count,
         )
     
     async def wait_for_stable(
@@ -268,9 +278,14 @@ class StateManager:
         context: "RunContext",
     ) -> None:
         """Update RunContext with current page state."""
+        try:
+            title = await page.title()
+        except Exception:
+            title = ""
+        
         context.update_page_state(
             url=page.url,
-            title=await page.title(),
+            title=title,
         )
     
     async def invalidate_on_navigation(

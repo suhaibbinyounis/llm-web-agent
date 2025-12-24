@@ -167,7 +167,10 @@ class DOMSimplifier:
             SimplifiedDOM with interactive elements
         """
         url = page.url
-        title = await page.title()
+        try:
+            title = await page.title()
+        except Exception:
+            title = ""
         
         # Get all interactive elements
         elements = await self._extract_interactive_elements(page)

@@ -1168,10 +1168,15 @@ class TargetResolver:
             
             fallback = LLMFallback(self._llm)
             
-            # Build context
+            # Build context - safely get title (may fail during navigation)
+            try:
+                page_title = await page.title() if hasattr(page, 'title') else ""
+            except Exception:
+                page_title = ""
+            
             context = ResolutionContext(
                 target=target,
-                page_title=await page.title() if hasattr(page, 'title') else "",
+                page_title=page_title,
             )
             
             # Get visible elements
