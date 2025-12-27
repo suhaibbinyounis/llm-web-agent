@@ -1,6 +1,6 @@
 # LLM Web Agent
 
-> A research-driven approach to browser automation combining pattern-based element resolution with LLM intelligence for robust, fast, and natural web interactions.
+> An adaptive browser automation framework that uses LLM-first planning, accessibility-first resolution, and learning to achieve fast, robust web interactions.
 
 [![CI](https://github.com/suhaibbinyounis/llm-web-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/suhaibbinyounis/llm-web-agent/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -8,153 +8,134 @@
 
 ---
 
-## 🔬 Research Context
+## 🎯 Key Features
 
-This project explores a critical question in AI-driven browser automation:
+### 1. LLM-First Planning (NEW!)
 
-**How can we build web agents that are both fast AND robust, without relying entirely on expensive LLM calls for every interaction?**
+**One LLM call plans your entire task** with multiple locator strategies per step:
 
-### The Problem with Current Approaches
+```python
+from llm_web_agent.engine import AdaptiveEngine
 
-| Approach | Speed | Robustness | Cost | Limitation |
-|----------|-------|------------|------|------------|
-| **Pure LLM Agents** (GPT-4V, Claude) | Slow (5-20s/action) | High | $$$ | Every action requires LLM call |
-| **Traditional Automation** (Selenium scripts) | Fast | Low | $ | Brittle selectors break easily |
-| **Visual AI** (Computer Vision) | Medium | Medium | $$ | Needs screenshots, slow processing |
-
-### Our Hypothesis
-
-> **Pattern-based element resolution can handle 90%+ of web interactions at 10x the speed, with LLM as an intelligent fallback for edge cases.**
-
-## 🎯 Key Research Contributions
-
-### 1. Intelligent Resolution Architecture (v3 - DOMMap)
-
-We implement a sophisticated **multi-layered resolution engine** that combines speed, adaptability, and robustness:
-
-```mermaid
-graph TD
-    A["Request: Click Submit"] --> B{"Layer 0: DOMMap"}
-    B -->|Multi-Index Lookup| C["Fingerprint + Selector"]
-    B -->|Miss| D{"Layer 1: Direct"}
-    D -->|Direct Selector| E["CSS/XPath Match"]
-    D -->|Miss| F{"Layer 2: Parallel Race"}
-    F -->|Simultaneous| G["Text First"]
-    F -->|Simultaneous| H["Playwright"]
-    F -->|Simultaneous| I["Smart Selectors"]
-    F -->|All Fail| J{"Layer 3: Fallback"}
-    J -->|Scoring| K["Fuzzy Search"]
-    J -->|Async Match| L["Dynamic Wait"]
-    
-    style B fill:#2e7d32,color:#fff
-    style C fill:#2e7d32,color:#fff
-    style F fill:#1565c0,color:#fff
-    style J fill:#7b1fa2,color:#fff
+engine = AdaptiveEngine(llm_provider=llm)
+result = await engine.run(page, """
+    1. Enter username "standard_user"
+    2. Enter password "secret_sauce"
+    3. Click Login
+    4. Add "Sauce Labs Backpack" to cart
+    5. Complete checkout
+""")
+# Result: 13/13 steps completed in ~59 seconds
 ```
 
-**Key Innovations:**
+### 2. Accessibility-First Resolution
 
-*   **DOMMap Real-Time Registry**: Persistent multi-index map (text, aria-label, role, data-testid, placeholder, fingerprint) with O(1) lookups. Built once per page, automatically refreshes on stale detection.
-*   **Element Fingerprinting**: Stable 12-character hashes for elements that survive page refreshes and CSS-in-JS class changes. Uses multi-signal approach (text, aria, position, stable classes).
-*   **Framework Hints**: Pattern library for MUI, Ant Design, Chakra, React-Select, Bootstrap, and Headless UI components.
-*   **Spatial Grid Index**: Grid-based spatial index for relational queries like *"Click Submit near Email"*.
-*   **O(1) Text Indexing**: Builds an inverted index of the page for instant lookups, treating the DOM like a database.
-*   **Parallel Execution**: Races 3 different strategies simultaneously (Text, Playwright, Smart) instead of trying them sequentially.
-*   **Spatial Resolution**: Understands layout queries like *"Click Submit near Email"* using the spatial index.
-*   **Adaptive Learning**: Tracks success rates per-domain and auto-adjusts strategy ordering (e.g., learns that `TextFirst` works best on GitHub but `Playwright` works best on React sites).
-*   **Exponential Backoff**: Adaptive waiting (100ms → 3s) for dynamic elements to appear.
+Inspired by [Playwright MCP](https://github.com/microsoft/playwright-mcp), we prioritize **accessibility tree** methods for stable element finding:
 
-### 2. Framework-Agnostic Design
+| Priority | Method | Stability | Example |
+|----------|--------|-----------|---------|
+| 1 | `getByTestId()` | ⭐⭐⭐⭐⭐ | `data-testid="login-btn"` |
+| 2 | `getByRole()` | ⭐⭐⭐⭐ | `button` with name "Login" |
+| 3 | `getByLabel()` | ⭐⭐⭐⭐ | Form label association |
+| 4 | `getByText()` | ⭐⭐⭐ | Visible text content |
+| 5 | CSS Selector | ⭐⭐ | Fallback only |
 
-Unlike approaches that require framework-specific knowledge, our agent works equally well on:
-- Static HTML sites
-- React/Next.js applications
-- Angular applications
-- Material UI components
-- Any JavaScript framework
+**Why it works**: Playwright's accessibility methods use the a11y tree, making them framework-agnostic (React, Angular, Vue all produce the same tree).
 
-**Why it works**: We target rendered text and semantic HTML, not implementation details.
+### 3. Site Profiling & Framework Detection
 
-### 3. Intelligent Code Container Detection
+Automatically detects framework and learns optimal selectors:
 
-Web pages often contain code samples that should NOT be clicked. Our `isCodeContainer()` heuristic automatically skips:
-- `<textarea>`, `<pre>`, `<code>` elements
-- Elements with classes containing "code", "editor", "syntax"
-- `contenteditable` elements
-- **Semantic patterns** like `import`, `function`, `=>`, JSX syntax.
+```python
+# Detects: React, Angular, Vue, Next.js, Nuxt, Svelte
+# Learns: Which selector types work on each site
+# Adapts: Reorders strategies based on success rate
 
-This prevents the agent from mistakenly interacting with documentation code samples.
+profile = await profiler.get_profile(page)
+# SiteProfile(framework='react', priorities=['testid', 'role', 'text'], ...)
+```
 
-### 4. Dynamic Element Handling
+### 4. Pattern Learning
 
-Modern web apps use dropdowns, modals, and popovers that only appear after interaction. Our `DYNAMIC` strategy uses:
-- **Exponential Backoff**: Adaptive waits (100ms, 300ms, 1s, 3s)
-- **Action Context**: Tracks newly appeared elements after a click
-- Playwright's `waitForSelector` for reliable visibility
+**Remembers what works** for instant resolution next time:
 
-This successfully handles dropdown options, modals, and popovers without explicit waits.
+```
+First time: "Login button" → tries 3 strategies → testid works ✓
+Next time:  "Signup button" → uses testid pattern FIRST → instant match!
+```
 
----
+### 5. Speculative Pre-Resolution
 
-## 📊 Performance Benchmarks
+Resolves steps N+1 and N+2 in the background while current step executes:
 
-### Speed Comparison (Action Execution Time)
-
-| Site | Action | Before Optimization | After Optimization | Improvement |
-|------|--------|---------------------|-------------------|-------------|
-| GitHub | Click "Sign in" | Failed | 2.7s | ✅ Fixed |
-| DuckDuckGo | Search | Failed | 1.4s | ✅ Fixed |
-| Bing | Search + Enter | 71s | 3.7s | **19x faster** |
-| MUI.com | 7-step navigation | - | 2.4s | ~0.3s/step |
-| DemoQA | 11-field form fill | - | 33.4s | ~3s/step |
-
-### Complex Task Performance
-
-| Test Case | Steps | Success Rate | Duration |
-|-----------|-------|--------------|----------|
-| MUI docs navigation | 12 | 12/12 (100%) | 8.4s |
-| Form filling (all field types) | 11 | 11/11 (100%) | 33.4s |
-| React component interaction | 7 | 7/7 (100%) | 2.4s |
+```
+Executing Step 1... │ Background: Pre-resolving Step 2, 3
+Executing Step 2... │ Background: Pre-resolving Step 3, 4 (already cached!)
+```
 
 ---
 
 ## 🏗️ Architecture
 
+```mermaid
+graph TB
+    A[User Goal] --> B[TaskPlanner]
+    B -->|ONE LLM call| C[ExecutionPlan]
+    C --> D[AdaptiveEngine]
+    
+    D --> E[SiteProfiler]
+    E -->|Detect framework| F[SiteProfile]
+    
+    D --> G[AccessibilityResolver]
+    F --> G
+    G -->|getByRole/getByLabel| H[Element Found]
+    
+    H --> I[SelectorPatternTracker]
+    I -->|Learn pattern| J[Next time: instant!]
+    
+    D --> K[Speculative Resolution]
+    K -->|Background| L[Pre-resolve N+1, N+2]
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     USER INSTRUCTION                                 │
-│       "Fill the form with name John, email test@example.com"        │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    INSTRUCTION PARSER                                │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────┐    │
-│  │   Pattern   │───▶│  LLM Fallback │───▶│   Structured Steps   │    │
-│  │   Matching  │    │  (if needed)  │    │                     │    │
-│  └─────────────┘    └──────────────┘    └─────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     TARGET RESOLVER                                  │
-│                                                                      │
-│  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌───────┐ ┌─────────┐    │
-│  │  DIRECT  │▶│TEXT_FIRST │▶│PLAYWRIGHT│▶│ SMART │▶│ DYNAMIC │    │
-│  │  <1ms    │ │  ~50ms    │ │  ~100ms  │ │~200ms │ │ ~3000ms │    │
-│  └──────────┘ └───────────┘ └──────────┘ └───────┘ └─────────┘    │
-│                                                                      │
-│  Innovation: 6-layer cascade with automatic fallback                │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼  
-┌─────────────────────────────────────────────────────────────────────┐
-│                     BATCH EXECUTOR                                   │
-│  • Groups compatible actions for efficient execution                │
-│  • Batches form fills via single JavaScript call                    │
-│  • Implements retry logic with LLM-powered recovery                 │
-└─────────────────────────────────────────────────────────────────────┘
-```
+
+### Core Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **TaskPlanner** | `task_planner.py` | LLM-first planning with multiple locators |
+| **SiteProfiler** | `site_profiler.py` | Framework detection + selector learning |
+| **AccessibilityResolver** | `accessibility_resolver.py` | Playwright a11y-based resolution |
+| **SelectorPatternTracker** | `selector_pattern_tracker.py` | Pattern-based learning |
+| **AdaptiveEngine** | `adaptive_engine.py` | Orchestrator with speculative execution |
+
+---
+
+## 📊 Performance
+
+### Real-World Test: SauceDemo Checkout
+
+| Metric | Value |
+|--------|-------|
+| **Steps Completed** | 13/13 (100%) |
+| **Total Duration** | 59.12s |
+| **LLM Calls** | 1 (planning only) |
+| **Avg Step Time** | 4.5s (including waits) |
+| **Framework Detected** | React |
+
+### Step-by-Step Breakdown
+
+| Step | Action | Locator Used | Time |
+|------|--------|--------------|------|
+| 1 | Fill username | CSS | 42ms |
+| 2 | Fill password | CSS | 29ms |
+| 3 | Click Login | text | 64ms |
+| 4 | Wait for products | - | 7ms |
+| 5 | Click Backpack | text | 46ms |
+| 6 | Add to cart | text | 35ms |
+| 7 | Click cart icon | CSS | 64ms |
+| 8 | Click Checkout | CSS | 55ms |
+| 9-11 | Fill checkout form | CSS | 18ms |
+| 12 | Click Continue | CSS | 57ms |
+| 13 | Click Finish | CSS | 52ms |
 
 ---
 
@@ -163,18 +144,11 @@ This successfully handles dropdown options, modals, and popovers without explici
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/suhaibbinyounis/llm-web-agent.git
 cd llm-web-agent
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install the package
 pip install -e ".[all]"
-
-# Install Playwright browsers
 playwright install chromium
 ```
 
@@ -184,27 +158,39 @@ playwright install chromium
 # Run with natural language instruction
 llm-web-agent run "go to google.com, search for Python tutorials"
 
-# Run with visible browser (for debugging)
+# Run with visible browser
 llm-web-agent run "go to github.com, click Sign in" --visible
 ```
 
-### Python API
+### Python API (New AdaptiveEngine)
 
 ```python
 import asyncio
-from llm_web_agent import Agent
+from playwright.async_api import async_playwright
+from llm_web_agent.engine import AdaptiveEngine
+from llm_web_agent.llm.openai_provider import OpenAIProvider
 
 async def main():
-    agent = Agent()
-    async with agent:
-        result = await agent.run(
-            "Go to demoqa.com/automation-practice-form, "
-            "type 'John' in First Name, "
-            "type 'Doe' in Last Name, "
-            "click Male, click Submit"
-        )
+    llm = OpenAIProvider()
+    engine = AdaptiveEngine(llm_provider=llm)
+    
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        page = await browser.new_page()
+        await page.goto("https://www.saucedemo.com")
+        
+        result = await engine.run(page, """
+            1. Enter username "standard_user"
+            2. Enter password "secret_sauce"
+            3. Click the Login button
+            4. Click on "Sauce Labs Backpack"
+            5. Add to cart
+            6. Complete checkout with John Doe, 12345
+        """)
+        
         print(f"Success: {result.success}")
-        print(f"Steps: {result.steps_completed}")
+        print(f"Steps: {result.steps_completed}/{result.steps_total}")
+        print(f"Duration: {result.duration_seconds:.1f}s")
 
 asyncio.run(main())
 ```
@@ -216,10 +202,10 @@ asyncio.run(main())
 ### Environment Variables
 
 ```bash
-# LLM Provider (required for instruction parsing)
+# LLM Provider
 OPENAI_API_KEY=sk-your-key-here
-# Or use local endpoint
-LLM_WEB_AGENT__LLM__BASE_URL=http://127.0.0.1:3030
+# Or use GitHub Copilot API Gateway
+COPILOT_API_URL=http://localhost:5100
 
 # Browser settings
 LLM_WEB_AGENT__BROWSER__HEADLESS=true
@@ -236,67 +222,23 @@ LLM_WEB_AGENT__BROWSER__HEADLESS=true
 
 ---
 
-## 🔄 How This Differs from Other Projects
+## 🔬 Research Context
 
-### vs. browser-use / Playwright Codegen
-- **browser-use**: Relies on LLM for every action → slower, costly
-- **Our approach**: Pattern-first with LLM fallback → 10x faster for common cases
+### The Problem with Current Approaches
 
-### vs. GPT-4V / Claude Vision
-- **Vision models**: Screenshot → process → action (~5-20s per step)
-- **Our approach**: DOM-based resolution (~0.1-0.5s per step)
+| Approach | Speed | Robustness | Cost |
+|----------|-------|------------|------|
+| **Pure LLM Agents** | Slow (5-20s/action) | High | $$$ |
+| **Traditional Automation** | Fast | Low (brittle) | $ |
+| **Vision AI** | Medium | Medium | $$ |
+| **Our Adaptive Engine** | **Fast** | **High** | **$** |
 
-### vs. Traditional Test Automation
-- **Selenium/Cypress**: Hardcoded selectors that break easily
-- **Our approach**: Natural language + multi-strategy resolution = robust
+### Our Solution
 
-### Unique Contributions
-1. **TEXT_FIRST strategy**: Human-like element finding via TreeWalker
-2. **6-layer resolution cascade**: Automatic fallback with speed priority
-3. **Code container detection**: Avoids clicking on documentation code samples
-4. **Dynamic element waiting**: Handles React-Select, MUI components, modals
-
----
-
-## 🧪 Current Status
-
-### What Works Well
-- ✅ Text input filling (by placeholder, label, name)
-- ✅ Button/link clicking (by visible text)
-- ✅ Radio buttons and checkboxes
-- ✅ Form submission
-- ✅ Multi-step navigation
-- ✅ React/Angular/MUI components
-- ✅ Scroll actions
-
-### Known Limitations
-- ⚠️ Complex dropdowns (React-Select) require exact option text
-- ⚠️ Elements behind sticky headers may need scroll adjustment
-- ⚠️ File uploads not fully implemented
-
-### Roadmap
-- [ ] Improved dropdown/select handling
-- [ ] Vision-assisted fallback for complex layouts
-- [ ] Recording and playback improvements
-- [ ] Plugin system for custom actions
-
----
-
-## 🛠️ Development
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
-
-# Run linter
-ruff check .
-
-# Format code
-ruff format .
-```
+1. **LLM-first planning**: ONE call plans complete task
+2. **Accessibility-first resolution**: Framework-agnostic, stable locators
+3. **Learning system**: Remembers what works per-site
+4. **Speculative execution**: Pre-resolves future steps
 
 ---
 
@@ -304,33 +246,40 @@ ruff format .
 
 ```
 src/llm_web_agent/
-├── engine/           # Core execution engine
-│   ├── engine.py          # Main orchestrator
-│   ├── instruction_parser.py  # NL → structured steps
-│   ├── target_resolver.py     # 7-layer element resolution
-│   ├── dom_map.py             # Real-time DOM registry (O(1) lookups)
-│   ├── fingerprint.py         # Stable element identification
-│   ├── framework_hints.py     # UI framework patterns (MUI, Ant, etc.)
-│   ├── text_index.py          # Inverted text index
-│   ├── batch_executor.py      # Optimized action execution
-│   └── state_manager.py       # Page state tracking
-├── browsers/         # Browser adapters (Playwright, Selenium)
+├── engine/                    # Core execution engine
+│   ├── adaptive_engine.py         # NEW: Main orchestrator with learning
+│   ├── task_planner.py            # NEW: LLM-first task planning
+│   ├── site_profiler.py           # NEW: Framework detection
+│   ├── accessibility_resolver.py  # NEW: Playwright a11y resolution
+│   ├── selector_pattern_tracker.py # NEW: Pattern learning
+│   ├── engine.py                  # Legacy engine
+│   ├── target_resolver.py         # Legacy resolution cascade
+│   └── dom_map.py                 # Real-time DOM registry
+├── browsers/         # Browser adapters
 ├── llm/              # LLM provider integrations
 ├── actions/          # Action implementations
-├── modes/            # Execution modes (NL, Guided, Record)
 └── cli/              # Command-line interface
+```
+
+---
+
+## 🛠️ Development
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+ruff check .
+ruff format .
 ```
 
 ---
 
 ## 📖 Citation
 
-If you use this project in your research, please cite:
-
 ```bibtex
 @software{llm_web_agent,
   author = {Suhaib Bin Younis},
-  title = {LLM Web Agent: Pattern-First Browser Automation with LLM Intelligence},
+  title = {LLM Web Agent: Adaptive Browser Automation with Learning},
   year = {2024},
   url = {https://github.com/suhaibbinyounis/llm-web-agent}
 }
@@ -346,10 +295,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
 <p align="center">
-  <sub>Built with ❤️ as part of ongoing research in AI-driven web automation</sub>
+  <sub>Built with ❤️ for the future of AI-driven web automation</sub>
 </p>
