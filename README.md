@@ -10,16 +10,24 @@
 
 ## 🎯 Key Features
 
-### 1. Robust Interaction Handling (Dec 2024 Update)
+### 1. Robust Interaction & Navigation Engine (2025 Update)
 
-- **Hover-Click Support**: Reliably handles dropdown menus by persisting hover state across steps and re-applying hover if needed.
-- **New Tab/Window Detection**: Automatically detects when clicks open new tabs and seamless switches context to the new page.
-- **Smart Click Reliability**: 
-  - Scrolls elements into view before clicking (fixes "click intercepted" issues).
-  - Multi-strategy click validation (normal -> force -> JS).
-  - Detects navigation/new tabs immediately to prevent redundant clicks.
+Engineered for reliability in complex, dynamic web environments:
 
-### 2. LLM-First Planning (NEW!)
+- **Context-Aware Navigation**:
+  - **Auto-Switching**: Intelligent detection of new tabs and windows, automatically shifting execution context to the active view.
+  - **State Persistence**: Shared execution context across instruction steps ensures transient states (like hover menus) are preserved.
+
+- **Adaptive Click Strategies**:
+  - **Visibility Assurance**: Automatic `scrollIntoView` pre-computation to eliminate "click intercepted" failures.
+  - **Multi-Layer Validation**: Hierarchical execution strategy (Standard → Force → JavaScript Injection) with DOM mutation verification.
+  - **Smart Deduplication**: Instant detection of navigation events or new tab openings to prevent redundant actions.
+
+- **Enhanced Instruction Processing**:
+  - **Dynamic Normalization**: Improved parser supports generic field matching and hover interactions without hardcoded constraints.
+  - **One-Shot Planning**: Optimized token usage by normalizing complex instruction sets in a single LLM pass.
+
+### 2. LLM-First Planning
 
 **One LLM call plans your entire task** with multiple locator strategies per step:
 
@@ -325,7 +333,7 @@ ruff format .
 @software{llm_web_agent,
   author = {Suhaib Bin Younis},
   title = {LLM Web Agent: Adaptive Browser Automation with Learning},
-  year = {2024},
+  year = {2025},
   url = {https://github.com/suhaibbinyounis/llm-web-agent}
 }
 ```
