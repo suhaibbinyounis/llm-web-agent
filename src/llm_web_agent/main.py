@@ -51,6 +51,7 @@ def run(
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    websocket: bool = typer.Option(False, "--websocket", "--ws", help="Use WebSocket for low-latency LLM"),
     timeout: int = typer.Option(60, "--timeout", "-t", help="Max execution time in seconds"),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
 ):
@@ -78,7 +79,8 @@ def run(
     console.print(Panel.fit(
         f"[bold blue]🤖 LLM Web Agent[/bold blue]\n"
         f"[dim]Browser:[/dim] {browser_label}\n"
-        f"[dim]Instruction:[/dim] {instruction}",
+        f"[dim]Instruction:[/dim] {instruction}"
+        + (f"\n[dim]Mode:[/dim] WebSocket (Low Latency)" if websocket else ""),
         border_style="blue",
     ))
     
@@ -89,6 +91,7 @@ def run(
         model=model,
         api_url=api_url,
         timeout=timeout,
+        use_websocket=websocket,
     ))
 
 
@@ -99,6 +102,7 @@ async def _run_async(
     api_url: str,
     timeout: int,
     browser_channel: Optional[str] = None,
+    use_websocket: bool = False,
 ):
     """Run the agent asynchronously with proper cleanup."""
     import signal
@@ -145,7 +149,14 @@ async def _run_async(
         browser = PlaywrightBrowser()
         await browser.launch(headless=headless, channel=browser_channel)
         
-        llm = OpenAIProvider(base_url=api_url, model=model)
+        if use_websocket:
+            from llm_web_agent.llm import HybridLLMProvider
+            ws_url = api_url.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = ws_url.rstrip("/") + "/v1/realtime"
+            llm = HybridLLMProvider(ws_url=ws_url, http_url=api_url, model=model)
+            await llm.connect()
+        else:
+            llm = OpenAIProvider(base_url=api_url, model=model)
         
         # Check LLM health
         if not await llm.health_check():
