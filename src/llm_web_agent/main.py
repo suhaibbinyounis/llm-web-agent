@@ -19,7 +19,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from llm_web_agent.browsers.playwright_browser import PlaywrightBrowser
 from llm_web_agent.llm.openai_provider import OpenAIProvider
+from llm_web_agent.llm.copilot_provider import CopilotProvider
 from llm_web_agent.engine.engine import Engine
+from llm_web_agent.engine.adaptive_engine import AdaptiveEngine
 
 # Create the CLI app
 app = typer.Typer(
@@ -400,6 +402,207 @@ async def _run_file_async(
             ))
         
         # Keep browser open if visible
+        if not headless:
+            console.print("\n[dim]Browser is open. Press Ctrl+C to close.[/dim]")
+            try:
+                await asyncio.sleep(3600)
+            except KeyboardInterrupt:
+                pass
+    
+    except KeyboardInterrupt:
+        console.print("[dim]Interrupted[/dim]")
+    
+    except Exception as e:
+        console.print(f"\n[red]✗ Error: {e}[/red]")
+        logging.exception("Execution failed")
+        raise typer.Exit(1)
+    
+    finally:
+        await cleanup()
+
+
+@app.command("run-adaptive")
+def run_adaptive(
+    goal: str = typer.Argument(..., help="Natural language goal (multi-step supported)"),
+    visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
+    browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
+    api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    use_openai: bool = typer.Option(False, "--openai", help="Use OpenAI instead of Copilot Gateway"),
+    timeout: int = typer.Option(120, "--timeout", "-t", help="Max execution time in seconds"),
+    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
+):
+    """
+    Execute a goal using the NEW AdaptiveEngine (LLM-first planning).
+    
+    Features:
+        - ONE LLM call plans complete task
+        - Accessibility-first element resolution
+        - Pattern learning for instant re-resolution
+        - Speculative pre-resolution (lookahead)
+    
+    Examples:
+        llm-web-agent run-adaptive "Login to saucedemo.com with standard_user" --visible
+        llm-web-agent run-adaptive "Search for Python on Google" --openai
+    """
+    setup_logging(verbose)
+    
+    channel = None
+    if browser in ("chrome", "chrome-beta", "msedge", "msedge-beta"):
+        channel = browser
+    
+    console.print(Panel.fit(
+        f"[bold blue]🚀 Adaptive Engine[/bold blue]\n"
+        f"[dim]Mode:[/dim] LLM-First Planning + Learning\n"
+        f"[dim]Goal:[/dim] {goal[:60]}{'...' if len(goal) > 60 else ''}",
+        border_style="blue",
+    ))
+    
+    asyncio.run(_run_adaptive_async(
+        goal=goal,
+        headless=not visible,
+        browser_channel=channel,
+        api_url=api_url,
+        use_openai=use_openai,
+        timeout=timeout,
+    ))
+
+
+async def _run_adaptive_async(
+    goal: str,
+    headless: bool,
+    api_url: str,
+    use_openai: bool,
+    timeout: int,
+    browser_channel: Optional[str] = None,
+):
+    """Run with AdaptiveEngine."""
+    import signal
+    from playwright.async_api import async_playwright
+    
+    playwright_ctx = None
+    browser_obj = None
+    llm = None
+    cleanup_done = False
+    
+    async def cleanup():
+        nonlocal cleanup_done
+        if cleanup_done:
+            return
+        cleanup_done = True
+        if browser_obj:
+            try:
+                await browser_obj.close()
+            except Exception:
+                pass
+        if playwright_ctx:
+            try:
+                await playwright_ctx.stop()
+            except Exception:
+                pass
+        if llm and hasattr(llm, 'close'):
+            try:
+                await llm.close()
+            except Exception:
+                pass
+    
+    def signal_handler(sig, frame):
+        console.print("\n[dim]Cleaning up...[/dim]")
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(cleanup())
+        raise KeyboardInterrupt
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Initialize LLM
+        console.print("[dim]⏳ Initializing LLM provider...[/dim]")
+        if use_openai:
+            llm = OpenAIProvider(base_url=api_url)
+            llm_name = "OpenAI"
+        else:
+            llm = CopilotProvider(base_url=api_url)
+            if await llm.health_check():
+                llm_name = "Copilot Gateway"
+            else:
+                console.print("[yellow]Copilot Gateway not available, falling back to OpenAI[/yellow]")
+                llm = OpenAIProvider(base_url=api_url)
+                llm_name = "OpenAI"
+        
+        console.print(f"[green]✓ {llm_name} connected[/green]")
+        
+        # Initialize AdaptiveEngine
+        engine = AdaptiveEngine(llm_provider=llm, lookahead_steps=2)
+        
+        # Launch browser with Playwright directly
+        console.print("[dim]⏳ Launching browser...[/dim]")
+        playwright_ctx = await async_playwright().start()
+        browser_obj = await playwright_ctx.chromium.launch(
+            headless=headless,
+            channel=browser_channel,
+        )
+        page = await browser_obj.new_page(viewport={"width": 1280, "height": 800})
+        
+        console.print(f"[green]✓ Browser ready[/green]")
+        console.print()
+        
+        # Check if goal starts with navigation
+        goal_lower = goal.lower()
+        if not any(goal_lower.startswith(x) for x in ['go to', 'navigate to', 'open', 'visit']):
+            # Default to about:blank
+            pass
+        else:
+            # Extract URL and navigate first
+            import re
+            url_match = re.search(r'(?:go to|navigate to|open|visit)\s+(\S+)', goal_lower)
+            if url_match:
+                url = url_match.group(1)
+                if not url.startswith('http'):
+                    url = 'https://' + url
+                console.print(f"[dim]🌐 Navigating to {url}...[/dim]")
+                await page.goto(url)
+                await asyncio.sleep(1)
+        
+        # Run with progress
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Planning and executing...", total=None)
+            
+            result = await engine.run(page=page, goal=goal)
+            
+            progress.update(task, completed=True)
+        
+        # Display results
+        console.print()
+        if result.success:
+            console.print(Panel.fit(
+                f"[bold green]✓ Success![/bold green]\n"
+                f"Steps: {result.steps_completed}/{result.steps_total}\n"
+                f"Duration: {result.duration_seconds:.1f}s\n"
+                f"Framework: {result.framework_detected or 'unknown'}",
+                border_style="green",
+            ))
+        else:
+            console.print(Panel.fit(
+                f"[bold red]✗ Failed[/bold red]\n"
+                f"Steps: {result.steps_completed}/{result.steps_total}\n"
+                f"Error: {result.error or 'Unknown'}",
+                border_style="red",
+            ))
+        
+        # Step details
+        if result.step_results:
+            console.print("\n[bold]Step Details:[/bold]")
+            for i, sr in enumerate(result.step_results, 1):
+                status = "[green]✓[/green]" if sr.success else "[red]✗[/red]"
+                loc = f"[{sr.locator_type.value}]" if sr.locator_type else ""
+                console.print(f"  {i}. {status} {sr.step.action.value}: {sr.step.target[:40]} {loc} ({sr.duration_ms:.0f}ms)")
+        
+        # Keep open if visible
         if not headless:
             console.print("\n[dim]Browser is open. Press Ctrl+C to close.[/dim]")
             try:
