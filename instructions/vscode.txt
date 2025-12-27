@@ -1,0 +1,4 @@
+Go to https://code.visualstudio.com
+Click "MCP"
+Once page loads, in search bar type "Playwright" and hit search button (magnifying glass icon)
+In search results click on Playwright card

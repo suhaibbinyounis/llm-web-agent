@@ -93,6 +93,15 @@ class PlaywrightPage(IPage):
         self._keyboard = page.keyboard
     
     @property
+    def context(self):
+        """Get the browser context this page belongs to."""
+        return self._page.context
+    
+    def get_all_pages(self) -> List["PlaywrightPage"]:
+        """Get all pages in this context (for new tab detection)."""
+        return [PlaywrightPage(p) for p in self._page.context.pages]
+    
+    @property
     def url(self) -> str:
         return self._page.url
     
@@ -212,6 +221,18 @@ class PlaywrightContext(IBrowserContext):
     
     def __init__(self, context):
         self._context = context
+    
+    @property
+    def pages(self) -> List[PlaywrightPage]:
+        """Get all pages in this context."""
+        return [PlaywrightPage(p) for p in self._context.pages]
+    
+    def get_newest_page(self) -> Optional[PlaywrightPage]:
+        """Get the most recently opened page."""
+        pages = self._context.pages
+        if pages:
+            return PlaywrightPage(pages[-1])
+        return None
     
     async def new_page(self, **options: Any) -> PlaywrightPage:
         page = await self._context.new_page()

@@ -242,6 +242,98 @@ class TaskPlanner:
             logger.error(f"Planning failed: {e}")
             return ExecutionPlan(goal=goal, steps=self._parse_fallback_steps(goal))
     
+    async def plan_streaming(
+        self,
+        page: "IPage",
+        goal: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> "AsyncIterator[PlannedStep]":
+        """
+        Stream planned steps as they are parsed from LLM response.
+        
+        This enables execution to start before the full plan is received,
+        reducing overall latency for multi-step tasks.
+        
+        Args:
+            page: Current browser page
+            goal: User's natural language goal
+            context: Optional additional context
+            
+        Yields:
+            PlannedStep objects as they are parsed
+        """
+        import asyncio
+        import re
+        from llm_web_agent.interfaces.llm import Message
+        from typing import AsyncIterator
+        
+        # Get lightweight page context
+        page_context = await self._get_page_context(page)
+        
+        # Format prompt
+        prompt = PLANNING_PROMPT.format(
+            url=page.url,
+            title=await page.title(),
+            elements_summary=json.dumps(page_context.get('elements', [])[:25], indent=2),
+            goal=goal,
+        )
+        
+        logger.debug(f"Streaming plan for: {goal}")
+        
+        # Track which steps we've yielded
+        yielded_step_ids = set()
+        step_index = 0
+        
+        try:
+            # Try streaming if provider supports it
+            buffer = ""
+            async for chunk in self._llm.stream([Message.user(prompt)], temperature=0.2):
+                buffer += chunk
+                
+                # Try to extract complete step objects from buffer
+                # Look for complete JSON objects within the steps array
+                step_pattern = r'\{\s*"action"\s*:\s*"[^"]+"\s*,\s*"target"\s*:\s*"[^"]*"[^}]*\}'
+                
+                for match in re.finditer(step_pattern, buffer):
+                    step_json = match.group()
+                    
+                    # Check if this step object looks complete
+                    try:
+                        step_data = json.loads(step_json)
+                        step = self._build_step(step_index, step_data)
+                        
+                        if step and step.id not in yielded_step_ids:
+                            yielded_step_ids.add(step.id)
+                            step_index += 1
+                            logger.info(f"Streaming step {step_index}: {step.action.value} {step.target}")
+                            yield step
+                            
+                            # Remove parsed step from buffer to avoid re-matching
+                            # Only remove the first occurrence
+                            buffer = buffer.replace(step_json, "", 1)
+                            
+                    except json.JSONDecodeError:
+                        # Incomplete JSON, keep buffering
+                        continue
+            
+            # After streaming completes, try to parse any remaining steps
+            # that might have been missed due to formatting
+            if buffer:
+                full_data = self._parse_response(buffer)
+                for i, step_data in enumerate(full_data.get('steps', [])):
+                    step = self._build_step(i + step_index, step_data)
+                    if step and step.id not in yielded_step_ids:
+                        yielded_step_ids.add(step.id)
+                        yield step
+                        
+        except Exception as e:
+            logger.warning(f"Streaming plan failed, falling back to batch: {e}")
+            # Fallback to regular planning
+            plan = await self.plan(page, goal, context)
+            for step in plan.steps:
+                if step.id not in yielded_step_ids:
+                    yield step
+    
     async def _get_page_context(self, page: "IPage") -> Dict[str, Any]:
         """Extract lightweight page context for planning."""
         try:

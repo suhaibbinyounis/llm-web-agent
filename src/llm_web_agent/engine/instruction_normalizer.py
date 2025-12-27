@@ -21,48 +21,44 @@ Convert these natural language instructions into our standard format.
 **OUR FORMAT:**
 - navigate: URL
 - click: TARGET
-- fill: TARGET with VALUE  ← TARGET must be UNIQUE field identifier
+- hover: TARGET  ← Use for dropdown menus that reveal on hover
+- fill: TARGET with VALUE  ← Extract VALUE from the instruction!
 - type: VALUE
 - scroll: down/up
 - wait: SECONDS
 - press: KEY
 
-**CRITICAL RULES FOR FILL:**
+**CRITICAL: EXTRACT VALUES FROM THE INSTRUCTIONS!**
+- If instruction says "Enter username standard_user" → value is "standard_user"
+- If instruction says "Fill first name with Bob" → value is "Bob"  
+- If instruction says "Enter password secret123" → value is "secret123"
+- NEVER invent or hardcode values - extract them from the original instruction!
+
+**RULES FOR TARGETS:**
 1. For form fields, use the EXACT field name that distinguishes it:
    - "first-name" NOT "input[type=text]"
    - "lastName" or "last-name" NOT "text input"
    - "postalCode" or "postal-code" or "zip" NOT just "input"
-   - "email" NOT "text field"
-2. Use common naming patterns:
-   - first-name, firstName, first_name
-   - last-name, lastName, last_name  
-   - postal-code, postalCode, zip, zipCode
-   - email, emailAddress
-   - password, passwd, pwd
-3. Each field MUST have a UNIQUE target so they don't get confused
+2. Each field MUST have a UNIQUE target
 
 **GENERAL RULES:**
 1. Skip meta-instructions like "Open browser" (already open)
-2. For clicks, use specific identifiers:
-   - Button IDs: "login-button", "checkout", "continue", "finish"
-   - Button text: "Login", "Add to Cart", "Submit"
-3. For saucedemo.com, use known IDs: user-name, password, login-button, checkout, first-name, last-name, postal-code, continue, finish
-4. When instruction says "Fill first name, last name, postal code" - create SEPARATE fill actions with UNIQUE targets
+2. For saucedemo.com, use known IDs: user-name, password, login-button, checkout, first-name, last-name, postal-code, continue, finish
+3. When instruction says "Fill first name, last name, postal code" without specific values, use placeholder values like "TestFirst", "TestLast", "10001"
 
 **INSTRUCTIONS TO CONVERT:**
 {instructions}
 
-**RESPOND WITH JSON ARRAY:**
+**RESPOND WITH JSON ARRAY (extract actual values from instructions!):**
 [
-  {{"action": "navigate", "url": "https://example.com"}},
-  {{"action": "fill", "target": "first-name", "value": "John"}},
-  {{"action": "fill", "target": "last-name", "value": "Doe"}},
-  {{"action": "fill", "target": "postal-code", "value": "12345"}},
-  {{"action": "click", "target": "continue"}},
+  {{"action": "navigate", "url": "<extracted URL>"}},
+  {{"action": "fill", "target": "<field name>", "value": "<VALUE FROM INSTRUCTION>"}},
+  {{"action": "click", "target": "<button/element>"}},
   ...
 ]
 
 Only output the JSON array, nothing else.'''
+
 
 
 async def normalize_instructions(
@@ -171,6 +167,10 @@ def normalized_to_instruction(action: dict) -> str:
     
     elif action_type == "screenshot":
         return "take a screenshot"
+    
+    elif action_type == "hover":
+        target = action.get("target", "")
+        return f"hover {target}"
     
     else:
         return action.get("description", str(action))

@@ -343,6 +343,14 @@ class TargetResolver:
                 self._dom_map = DOMMap()
             except ImportError:
                 logger.debug("DOMMap not available")
+        
+        # Selector pattern tracker for per-domain caching
+        self._pattern_tracker = None
+        try:
+            from llm_web_agent.engine.selector_pattern_tracker import get_pattern_tracker
+            self._pattern_tracker = get_pattern_tracker()
+        except ImportError:
+            logger.debug("SelectorPatternTracker not available")
     
     def set_hints(self, synonyms: Dict[str, List[str]] = None, selector_hints: List[str] = None):
         """
@@ -469,14 +477,32 @@ class TargetResolver:
                     logger.info(f"SPATIAL found '{target_text}' near '{ref_text}' with: {result.selector}")
                     return result
         
-        # Extract domain for tracking
+        # Extract domain for tracking and caching
         domain = None
-        if self._tracker:
-            try:
-                from urllib.parse import urlparse
-                domain = urlparse(page.url).netloc
-            except Exception:
-                pass
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(page.url).netloc
+        except Exception:
+            pass
+        
+        # Strategy -0.5: CACHE LOOKUP (fastest - uses previously successful selectors)
+        if self._pattern_tracker and domain:
+            cached_selector = self._pattern_tracker.get_exact_match(domain, target)
+            if cached_selector:
+                try:
+                    element = await page.query_selector(cached_selector)
+                    if element and await self._is_visible(element):
+                        elapsed = (time.time() - start_time) * 1000
+                        logger.info(f"CACHE HIT for '{target}': {cached_selector} ({elapsed:.0f}ms)")
+                        self._record_outcome(domain, "cache", True, start_time)
+                        return ResolvedTarget(
+                            selector=cached_selector,
+                            element=element,
+                            strategy=ResolutionStrategy.DIRECT,
+                            confidence=0.99,
+                        )
+                except Exception:
+                    pass  # Cache miss or stale selector, continue to other strategies
         
         # Strategy 0: DOMMap lookup (O(1) real-time registry) - FASTEST
         if self._dom_map:
@@ -485,6 +511,9 @@ class TargetResolver:
                 self._record_outcome(domain, "dom_map", True, start_time)
                 elapsed = (time.time() - start_time) * 1000
                 logger.info(f"DOMMAP found '{target}' with: {result.selector} ({elapsed:.0f}ms)")
+                # Record success for caching
+                if self._pattern_tracker and domain:
+                    self._pattern_tracker.record_success(domain, target, "dom_map", result.selector)
                 return result
         
         # Strategy 1: Direct selector (always first, very fast)
@@ -509,11 +538,16 @@ class TargetResolver:
             if result.is_resolved:
                 elapsed = (time.time() - start_time) * 1000
                 logger.info(f"{result.strategy.value.upper()} found '{target}' with: {result.selector} ({elapsed:.0f}ms)")
+                # Cache successful resolution
+                if self._pattern_tracker and domain:
+                    self._pattern_tracker.record_success(domain, target, result.strategy.value, result.selector)
                 return result
         else:
             # Sequential fallback
             result = await self._resolve_sequential(page, target, intent, domain)
             if result.is_resolved:
+                if self._pattern_tracker and domain:
+                    self._pattern_tracker.record_success(domain, target, result.strategy.value, result.selector)
                 return result
         
         # Slower strategies (always sequential)
@@ -534,6 +568,8 @@ class TargetResolver:
         if result.is_resolved:
             self._record_outcome(domain, "accessibility", True, access_start)
             logger.info(f"ACCESSIBILITY found '{target}' with: {result.selector}")
+            if self._pattern_tracker and domain:
+                self._pattern_tracker.record_success(domain, target, "accessibility", result.selector)
             return result
         self._record_outcome(domain, "accessibility", False, access_start)
         
@@ -543,6 +579,8 @@ class TargetResolver:
         if result.is_resolved:
             self._record_outcome(domain, "form_field", True, form_start)
             logger.info(f"FORM_FIELD found '{target}' with: {result.selector}")
+            if self._pattern_tracker and domain:
+                self._pattern_tracker.record_success(domain, target, "form_field", result.selector)
             return result
         self._record_outcome(domain, "form_field", False, form_start)
         
@@ -551,7 +589,9 @@ class TargetResolver:
         result = await self._try_fuzzy_search(page, target, intent)
         if result.is_resolved:
             self._record_outcome(domain, "fuzzy", True, fuzzy_start)
-            logger.info(f"FUZZY found '{target}' with: {result.selector}") 
+            logger.info(f"FUZZY found '{target}' with: {result.selector}")
+            if self._pattern_tracker and domain:
+                self._pattern_tracker.record_success(domain, target, "fuzzy", result.selector)
             return result
         self._record_outcome(domain, "fuzzy", False, fuzzy_start)
         
@@ -984,19 +1024,26 @@ class TargetResolver:
         clean = target.lower().strip()
         core = self._extract_core_text(target)
         
-        # For input actions, prioritize input elements
+        # For input actions, prioritize specific attribute-based selectors
         if intent in ("fill", "type"):
+            # ID-based selectors (most specific, highest priority)
             selectors.extend([
+                f'input[id="{core.replace(" ", "-")}"]',
+                f'input[id="{core.replace(" ", "_")}"]',
+                f'input[id*="{core}" i]',
+                f'textarea[id*="{core}" i]',
+            ])
+            # Name/placeholder/aria-label (specific to target)
+            selectors.extend([
+                f'input[name*="{core}" i]',
                 f'input[placeholder*="{core}" i]',
                 f'input[aria-label*="{core}" i]',
-                f'input[name*="{core}" i]',
+                f'textarea[name*="{core}" i]',
                 f'textarea[placeholder*="{core}" i]',
-                'input[type="search"]',
-                'input[type="text"]',
-                '#searchInput',
-                'input[name="q"]',
-                '[role="searchbox"]',
             ])
+            # NOTE: Removed generic selectors like input[type="text"], 
+            # input[type="search"], #searchInput, input[name="q"], [role="searchbox"]
+            # These caused incorrect matching (all fields → first input)
         
         # For click actions
         if intent in ("click", None):

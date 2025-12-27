@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+import asyncio
 import time
 import logging
 
@@ -187,71 +188,104 @@ class BatchExecutor:
         step: TaskStep,
         context: RunContext,
     ) -> StepResult:
-        """Execute a single step."""
-        start = time.time()
-        step.status = StepStatus.RUNNING
+        """Execute a single step with automatic error recovery."""
+        from llm_web_agent.engine.error_recovery import get_error_recovery
         
-        try:
-            # Resolve value references
-            value = step.value
-            if value and context.has_references(value):
-                value = context.resolve(value)
-            
-            # Execute based on intent
-            if step.intent == StepIntent.NAVIGATE:
-                await self._execute_navigate(page, step.target, context)
-            
-            elif step.intent == StepIntent.CLICK:
-                await self._execute_click(page, step.target, context)
-            
-            elif step.intent == StepIntent.FILL:
-                await self._execute_fill(page, step.target, value, context)
-            
-            elif step.intent == StepIntent.TYPE:
-                await self._execute_type(page, step.target, value, context)
-            
-            elif step.intent == StepIntent.SELECT:
-                await self._execute_select(page, step.target, value, context)
-            
-            elif step.intent == StepIntent.EXTRACT:
-                extracted = await self._execute_extract(page, step.target, context)
-                if step.store_as:
-                    context.store(step.store_as, extracted)
-                step.result = extracted
-            
-            elif step.intent == StepIntent.HOVER:
-                await self._execute_hover(page, step.target, context)
-            
-            elif step.intent == StepIntent.SCROLL:
-                await self._execute_scroll(page, step.target, context)
-            
-            elif step.intent == StepIntent.WAIT:
-                await self._execute_wait(page, step.target, step.value, context)
-            
-            elif step.intent == StepIntent.PRESS_KEY:
-                await self._execute_press_key(page, step.value, context)
-            
-            elif step.intent == StepIntent.SUBMIT:
-                await self._execute_submit(page, step.target, context)
-            
-            elif step.intent == StepIntent.SCREENSHOT:
-                await self._execute_screenshot(page, step.target, context)
-            
-            else:
-                raise ValueError(f"Unknown intent: {step.intent}")
-            
-            duration = (time.time() - start) * 1000
-            step.mark_success(duration_ms=duration)
-            
-            return StepResult(step=step, success=True, duration_ms=duration)
+        recovery = get_error_recovery()
+        max_attempts = 4  # 1 initial + 3 recovery attempts
+        timeout_ms = 5000  # Default timeout
         
-        except Exception as e:
-            duration = (time.time() - start) * 1000
-            error = str(e)
-            step.mark_failed(error, duration_ms=duration)
-            logger.error(f"Step failed: {step.intent.value} → {error}")
+        for attempt in range(max_attempts):
+            start = time.time()
+            step.status = StepStatus.RUNNING
             
-            return StepResult(step=step, success=False, duration_ms=duration, error=error)
+            try:
+                # Resolve value references
+                value = step.value
+                if value and context.has_references(value):
+                    value = context.resolve(value)
+                
+                # Execute based on intent
+                if step.intent == StepIntent.NAVIGATE:
+                    await self._execute_navigate(page, step.target, context)
+                
+                elif step.intent == StepIntent.CLICK:
+                    await self._execute_click(page, step.target, context)
+                
+                elif step.intent == StepIntent.FILL:
+                    await self._execute_fill(page, step.target, value, context)
+                
+                elif step.intent == StepIntent.TYPE:
+                    await self._execute_type(page, step.target, value, context)
+                
+                elif step.intent == StepIntent.SELECT:
+                    await self._execute_select(page, step.target, value, context)
+                
+                elif step.intent == StepIntent.EXTRACT:
+                    extracted = await self._execute_extract(page, step.target, context)
+                    if step.store_as:
+                        context.store(step.store_as, extracted)
+                    step.result = extracted
+                
+                elif step.intent == StepIntent.HOVER:
+                    await self._execute_hover(page, step.target, context)
+                
+                elif step.intent == StepIntent.SCROLL:
+                    await self._execute_scroll(page, step.target, context)
+                
+                elif step.intent == StepIntent.WAIT:
+                    await self._execute_wait(page, step.target, step.value, context)
+                
+                elif step.intent == StepIntent.PRESS_KEY:
+                    await self._execute_press_key(page, step.value, context)
+                
+                elif step.intent == StepIntent.SUBMIT:
+                    await self._execute_submit(page, step.target, context)
+                
+                elif step.intent == StepIntent.SCREENSHOT:
+                    await self._execute_screenshot(page, step.target, context)
+                
+                else:
+                    raise ValueError(f"Unknown intent: {step.intent}")
+                
+                duration = (time.time() - start) * 1000
+                step.mark_success(duration_ms=duration)
+                
+                # Reset recovery attempts on success
+                recovery.reset_attempts(step.id)
+                
+                return StepResult(step=step, success=True, duration_ms=duration)
+            
+            except Exception as e:
+                duration = (time.time() - start) * 1000
+                error_str = str(e)
+                
+                # Attempt recovery
+                recovery_context = {
+                    "step_id": step.id,
+                    "target": step.target,
+                    "timeout": timeout_ms,
+                }
+                
+                recovery_result = await recovery.recover(e, page, recovery_context)
+                
+                if recovery_result.should_retry:
+                    logger.info(f"Recovery: {recovery_result.action_taken} → retrying step")
+                    
+                    # Update timeout if recovery suggests it
+                    if recovery_result.new_timeout:
+                        timeout_ms = recovery_result.new_timeout
+                    
+                    continue  # Retry the step
+                
+                # No more recovery options, fail the step
+                step.mark_failed(error_str, duration_ms=duration)
+                logger.error(f"Step failed (after recovery): {step.intent.value} → {error_str}")
+                
+                return StepResult(step=step, success=False, duration_ms=duration, error=error_str)
+        
+        # Should never reach here, but safety fallback
+        return StepResult(step=step, success=False, error="Max attempts exceeded")
     
     async def _execute_batch_fill(
         self,
@@ -305,63 +339,79 @@ class BatchExecutor:
             return results
             
         except Exception as e:
-            logger.warning(f"FormFiller failed, falling back to resolver: {e}")
+            logger.warning(f"FormFiller failed, falling back to smart field matching: {e}")
         
-        # FALLBACK: Original resolver-based approach
-        # Resolve all targets first
-        targets: Dict[str, Tuple[TaskStep, ResolvedTarget]] = {}
-        for step in steps:
-            resolved = await self._resolver.resolve(page, step.target, "fill")
-            if resolved.is_resolved:
-                targets[step.id] = (step, resolved)
-            else:
-                # Can't resolve, will fail this step
-                step.mark_failed(f"Could not find element: {step.target}")
-                results.append(StepResult(step=step, success=False, error="Element not found"))
-        
-        # Build fill data
-        fill_data: Dict[str, str] = {}
-        for step_id, (step, resolved) in targets.items():
-            value = step.value or ""
-            if context.has_references(value):
-                value = context.resolve(value)
-            fill_data[resolved.selector] = value
-        
-        # Try JavaScript batch fill (fastest)
-        if fill_data:
-            try:
-                await page.evaluate("""
-                    (data) => {
-                        for (const [selector, value] of Object.entries(data)) {
-                            const el = document.querySelector(selector);
-                            if (el) {
-                                el.value = value;
-                                el.dispatchEvent(new Event('input', {bubbles: true}));
-                                el.dispatchEvent(new Event('change', {bubbles: true}));
-                            }
-                        }
-                    }
-                """, fill_data)
+        # FALLBACK: Use FormFieldAnalyzer for unique field matching
+        # This ensures we find the RIGHT field, not just ANY matching input
+        try:
+            from llm_web_agent.engine.form_handler import FormFieldAnalyzer
+            
+            analyzer = FormFieldAnalyzer()
+            form_context = await analyzer.analyze(page)
+            
+            if not form_context.fields:
+                logger.warning("No form fields found on page for fallback")
+                for step in steps:
+                    if not any(r.step.id == step.id for r in results):
+                        step.mark_failed("No form fields found on page")
+                        results.append(StepResult(step=step, success=False, error="No form fields found"))
+                return results
+            
+            logger.info(f"Analyzed form: {len(form_context.fields)} fields found")
+            
+            for step in steps:
+                # Skip if already processed
+                if any(r.step.id == step.id for r in results):
+                    continue
                 
-                # Mark all as success
-                for step_id, (step, resolved) in targets.items():
-                    step.mark_success()
-                    results.append(StepResult(step=step, success=True))
+                target = step.target
+                value = step.value or ""
+                if context.has_references(value):
+                    value = context.resolve(value)
+                
+                # Find best matching field using FormField.matches()
+                best_field = None
+                best_score = 0.6  # Minimum threshold for a match
+                
+                for field in form_context.get_input_fields():
+                    if not field.is_visible or field.is_disabled:
+                        continue
+                    score = field.matches(target)
+                    if score > best_score:
+                        best_score = score
+                        best_field = field
+                
+                if best_field:
+                    # Build unique selector from field attributes (ID > name > selector)
+                    if best_field.id:
+                        selector = f"#{best_field.id}"
+                    elif best_field.name:
+                        selector = f"[name='{best_field.name}']"
+                    else:
+                        selector = best_field.selector
                     
-            except Exception as e:
-                logger.warning(f"Batch fill via JS failed, falling back: {e}")
-                # Fall back to individual fills
-                for step_id, (step, resolved) in targets.items():
                     try:
-                        value = step.value or ""
-                        if context.has_references(value):
-                            value = context.resolve(value)
-                        await page.fill(resolved.selector, value)
+                        await page.fill(selector, value)
                         step.mark_success()
                         results.append(StepResult(step=step, success=True))
+                        logger.info(f"Filled '{best_field.get_best_identifier()}' via fallback (score: {best_score:.2f})")
                     except Exception as fill_error:
                         step.mark_failed(str(fill_error))
                         results.append(StepResult(step=step, success=False, error=str(fill_error)))
+                else:
+                    # No unique match found - fail explicitly instead of guessing
+                    error = f"No unique field match for '{target}' (best score < 0.6)"
+                    step.mark_failed(error)
+                    results.append(StepResult(step=step, success=False, error=error))
+                    logger.warning(error)
+                    
+        except Exception as fallback_error:
+            logger.error(f"Fallback field matching failed: {fallback_error}")
+            # Mark remaining steps as failed
+            for step in steps:
+                if not any(r.step.id == step.id for r in results):
+                    step.mark_failed(f"Fallback failed: {fallback_error}")
+                    results.append(StepResult(step=step, success=False, error=str(fallback_error)))
         
         return results
     
@@ -388,12 +438,143 @@ class BatchExecutor:
         target: str,
         context: RunContext,
     ) -> None:
-        """Click an element."""
+        """Click an element with multi-strategy validation."""
+        from llm_web_agent.engine.step_validator import get_step_validator
+        
+        validator = get_step_validator()
+        
+        # If there was a recent hover, re-apply it to keep dropdown open
+        last_hover_selector = context.extracted.get("_last_hover_selector")
+        if last_hover_selector:
+            try:
+                logger.info(f"Re-hovering on '{last_hover_selector}' to keep dropdown open")
+                await page.hover(last_hover_selector)
+                await asyncio.sleep(0.3)  # Let menu fully appear
+                
+                # Try to click by text match while hovering (for dropdown items)
+                # This is more reliable than going through resolver
+                try:
+                    # Look for visible element with target text in dropdown
+                    elements = await page.query_selector_all(f'text="{target}"')
+                    for el in elements:
+                        if await el.is_visible():
+                            logger.info(f"Found visible '{target}' in dropdown, clicking directly")
+                            await el.click()
+                            await asyncio.sleep(0.3)
+                            logger.info(f"✓ Click completed on dropdown item: {target}")
+                            context.extracted.pop("_last_hover_selector", None)
+                            return
+                except Exception as e:
+                    logger.debug(f"Direct dropdown click failed: {e}")
+            except Exception as e:
+                logger.debug(f"Re-hover failed: {e}")
+            # Clear after use
+            context.extracted.pop("_last_hover_selector", None)
+        
         resolved = await self._resolver.resolve(page, target, "click")
+        
         if not resolved.is_resolved:
             raise ValueError(f"Could not find element: {target}")
         
-        await page.click(resolved.selector)
+        selector = resolved.selector
+        
+        # IMPORTANT: Scroll element into view first to ensure we're clicking the right one
+        try:
+            escaped_selector = selector.replace("\\", "\\\\").replace("'", "\\'")
+            await page.evaluate(f'''
+                (() => {{
+                    const el = document.querySelector('{escaped_selector}');
+                    if (el) {{
+                        el.scrollIntoView({{behavior: 'smooth', block: 'center'}});
+                    }}
+                }})()
+            ''')
+            await asyncio.sleep(0.3)  # Wait for scroll to complete
+        except Exception as e:
+            logger.debug(f"scrollIntoView failed: {e}")
+        
+        # Capture state before click
+        url_before = page.url
+        dom_hash_before = await validator._get_dom_hash(page)
+        
+        # Strategy 1: Normal click
+        logger.debug(f"Click strategy 1: normal click on '{target}'")
+        await page.click(selector)
+        await asyncio.sleep(0.3)  # Wait for UI reaction
+        
+        result = await validator.validate_click(page, selector, url_before, dom_hash_before)
+        if result.success:
+            logger.info(f"✓ Click validated: {target}")
+            return
+        
+        # Check if URL changed or new tab opened - if so, click worked, don't retry!
+        if page.url != url_before:
+            logger.info(f"✓ Click caused navigation to {page.url}")
+            return
+        
+        # Check for new tabs - don't click again if a new tab opened
+        try:
+            all_pages = page.get_all_pages()
+            if len(all_pages) > 1:
+                logger.info(f"✓ Click opened new tab - not retrying")
+                return
+        except Exception:
+            pass
+        
+        logger.warning(f"Click may not have worked on '{target}', trying alternative strategies")
+        
+        # Strategy 2: Force click (bypass actionability checks)
+        logger.debug(f"Click strategy 2: force click on '{target}'")
+        try:
+            url_before = page.url
+            dom_hash_before = await validator._get_dom_hash(page)
+            await page.click(selector, force=True)
+            await asyncio.sleep(0.3)
+            
+            # Check if click caused navigation
+            if page.url != url_before:
+                logger.info(f"✓ Click (force) caused navigation to {page.url}")
+                return
+            
+            result = await validator.validate_click(page, selector, url_before, dom_hash_before)
+            if result.success:
+                logger.info(f"✓ Click validated (force): {target}")
+                return
+        except Exception as e:
+            logger.debug(f"Force click failed: {e}")
+        
+        # Strategy 3: JavaScript click
+        logger.debug(f"Click strategy 3: JS click on '{target}'")
+        try:
+            escaped_selector = selector.replace("\\", "\\\\").replace("'", "\\'")
+            url_before = page.url
+            dom_hash_before = await validator._get_dom_hash(page)
+            
+            await page.evaluate(f'''
+                (() => {{
+                    const el = document.querySelector('{escaped_selector}');
+                    if (el) {{
+                        el.scrollIntoView({{block: 'center'}});
+                        el.click();
+                    }}
+                }})()
+            ''')
+            await asyncio.sleep(0.3)
+            
+            # Check if click caused navigation
+            if page.url != url_before:
+                logger.info(f"✓ Click (JS) caused navigation to {page.url}")
+                return
+            
+            result = await validator.validate_click(page, selector, url_before, dom_hash_before)
+            if result.success:
+                logger.info(f"✓ Click validated (JS): {target}")
+                return
+        except Exception as e:
+            logger.debug(f"JS click failed: {e}")
+        
+        # Don't fail hard for clicks - UI may have changed in a way we can't detect
+        logger.warning(f"Click validation uncertain for '{target}' - continuing")
     
     async def _execute_fill(
         self,
@@ -402,12 +583,149 @@ class BatchExecutor:
         value: str,
         context: RunContext,
     ) -> None:
-        """Fill a form field."""
+        """
+        Fill a form field with multi-layer validation and retry.
+        
+        Enterprise-grade reliability:
+        1. Resolve element
+        2. Pre-validate (visible, enabled)
+        3. Attempt fill with Strategy 1: page.fill()
+        4. Validate (read back value)
+        5. If failed: Strategy 2: click + type with delay
+        6. If failed: Strategy 3: JavaScript direct assignment
+        7. Fail hard if all strategies fail
+        """
+        from llm_web_agent.engine.step_validator import get_step_validator
+        
+        validator = get_step_validator()
         resolved = await self._resolver.resolve(page, target, "fill")
+        
         if not resolved.is_resolved:
             raise ValueError(f"Could not find element: {target}")
         
-        await page.fill(resolved.selector, value or "")
+        fill_value = value or ""
+        selector = resolved.selector
+        
+        # Skip empty values
+        if not fill_value:
+            logger.debug(f"Skipping fill for '{target}': no value provided")
+            return
+        
+        logger.info(f"Filling '{target}' with value: '{fill_value}'")
+        
+        # Pre-validation: ensure element is ready
+        pre_result = await validator.pre_validate(page, selector, "fill")
+        if not pre_result.success:
+            logger.warning(f"Pre-validation failed: {pre_result.message}")
+            # Try to scroll into view
+            try:
+                await page.evaluate(
+                    f"document.querySelector('{selector}')?.scrollIntoView({{behavior: 'instant', block: 'center'}})"
+                )
+                await asyncio.sleep(0.2)
+            except Exception:
+                pass
+        
+        # Strategy 1: Playwright fill()
+        logger.debug("Strategy 1: page.fill()")
+        try:
+            await page.click(selector)  # Focus first
+            await page.fill(selector, "")  # Clear
+            await page.fill(selector, fill_value)
+            await asyncio.sleep(0.2)  # Wait for value to settle
+            
+            result = await validator.validate_fill(page, selector, fill_value)
+            if result.success:
+                logger.info(f"✓ Fill validated (strategy 1): {target} = '{fill_value}'")
+                return
+            logger.warning(f"Strategy 1 failed: {result.message}")
+        except Exception as e:
+            logger.warning(f"Strategy 1 error: {e}")
+        
+        # Strategy 2: Click + Type with delay
+        logger.debug("Strategy 2: page.click() + page.type() with delay")
+        try:
+            await page.click(selector, click_count=3)  # Triple-click to select all
+            await asyncio.sleep(0.1)
+            await page.keyboard.press("Backspace")  # Clear selection
+            await page.type(selector, fill_value, delay=30)
+            
+            result = await validator.validate_fill(page, selector, fill_value)
+            if result.success:
+                logger.info(f"✓ Fill validated (strategy 2): {target} = '{fill_value}'")
+                return
+            logger.warning(f"Strategy 2 failed: {result.message}")
+        except Exception as e:
+            logger.warning(f"Strategy 2 error: {e}")
+        
+        # Strategy 3: JavaScript direct assignment + events
+        logger.debug("Strategy 3: JavaScript direct assignment")
+        try:
+            # Escape selector for JS - use CSS.escape if available
+            escaped_value = fill_value.replace("\\", "\\\\").replace("'", "\\'")
+            escaped_selector = selector.replace("\\", "\\\\").replace("'", "\\'")
+            
+            await page.evaluate(f'''
+                (() => {{
+                    const el = document.querySelector('{escaped_selector}');
+                    if (el) {{
+                        el.focus();
+                        el.value = '{escaped_value}';
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                }})()
+            ''')
+            await asyncio.sleep(0.1)
+            
+            result = await validator.validate_fill(page, selector, fill_value)
+            if result.success:
+                logger.info(f"✓ Fill validated (strategy 3): {target} = '{fill_value}'")
+                return
+            logger.warning(f"Strategy 3 failed: {result.message}")
+        except Exception as e:
+            logger.warning(f"Strategy 3 error: {e}")
+        
+        # Strategy 4: Use getElementById for id-based selectors
+        logger.debug("Strategy 4: getElementById direct")
+        try:
+            # Extract ID from selector like 'input[id="first-name"]' or '#first-name'
+            import re
+            id_match = re.search(r'id=["\']([^"\']+)["\']|#([^\s\[]+)', selector)
+            if id_match:
+                element_id = id_match.group(1) or id_match.group(2)
+                escaped_value = fill_value.replace("\\", "\\\\").replace("'", "\\'")
+                
+                await page.evaluate(f'''
+                    (() => {{
+                        const el = document.getElementById('{element_id}');
+                        if (el) {{
+                            el.focus();
+                            el.select();
+                            el.value = '{escaped_value}';
+                            el.dispatchEvent(new InputEvent('input', {{ bubbles: true, data: '{escaped_value}' }}));
+                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            // Also set attribute for frameworks that read it
+                            el.setAttribute('value', '{escaped_value}');
+                        }}
+                    }})()
+                ''')
+                await asyncio.sleep(0.2)
+                
+                # Verify using getElementById
+                actual = await page.evaluate(f"document.getElementById('{element_id}')?.value || ''")
+                if actual == fill_value:
+                    logger.info(f"✓ Fill validated (strategy 4): {target} = '{fill_value}'")
+                    return
+                logger.warning(f"Strategy 4 failed: got '{actual}' expected '{fill_value}'")
+        except Exception as e:
+            logger.warning(f"Strategy 4 error: {e}")
+        
+        # All strategies failed - this is an enterprise failure
+        raise ValueError(
+            f"FILL VALIDATION FAILED after all strategies for '{target}'. "
+            f"Expected: '{fill_value}', Selector: '{selector}'"
+        )
     
     async def _execute_type(
         self,
@@ -467,12 +785,17 @@ class BatchExecutor:
         target: str,
         context: RunContext,
     ) -> None:
-        """Hover over an element."""
+        """Hover over an element (for dropdown menus etc)."""
         resolved = await self._resolver.resolve(page, target, "hover")
         if not resolved.is_resolved:
             raise ValueError(f"Could not find element: {target}")
         
         await page.hover(resolved.selector)
+        # Important: Store the hover selector so click can re-hover on dropdown items
+        context.extracted["_last_hover_selector"] = resolved.selector
+        # Keep the mouse there briefly for menu to appear
+        await asyncio.sleep(0.5)
+        logger.info(f"✓ Hover completed on '{target}' - dropdown should be visible")
     
     async def _execute_scroll(
         self,

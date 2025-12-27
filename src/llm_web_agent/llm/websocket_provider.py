@@ -227,45 +227,76 @@ class WebSocketLLMProvider(ILLMProvider):
             asyncio.create_task(self._reconnect())
     
     async def _handle_message(self, raw_message: str) -> None:
-        """Handle an incoming WebSocket message."""
+        """Handle an incoming WebSocket message (Standard OpenAI JSON)."""
+        logger.info(f"WS RX: {raw_message[:200]}...") # Debug log
         try:
             data = json.loads(raw_message)
             
-            request_id = data.get("request_id")
-            msg_type = data.get("type", "")
-            
-            if not request_id or request_id not in self._pending_requests:
-                logger.debug(f"Received message for unknown request: {request_id}")
+            # FIFO processing
+            if not self._pending_requests:
+                logger.warning("WS RX: No pending requests for message")
                 return
-            
+
+            # Get oldest pending request (FIFO)
+            # We must retrieve this BEFORE checking message type to avoid UnboundLocalError
+            request_id = next(iter(self._pending_requests))
             pending = self._pending_requests[request_id]
-            
-            if msg_type == "chat.completions.response":
-                # Full response
-                payload = data.get("payload", {})
-                response = self._parse_response(payload)
+
+            # Check for wrapped response (Realtime API format)
+            if "type" in data and "data" in data:
+                event_type = data["type"]
+                payload = data["data"]
                 
+                if event_type == "chat.completion.result":
+                    # Determine which request this is for
+                    # Note: Original code uses FIFO. Ideally we'd match IDs if available.
+                    # Standard OpenAI response has 'id', but our pending_requests uses a client-generated UUID.
+                    # We stick to FIFO for now as established in the class.
+                    
+                    if "choices" in payload:
+                         # Standard response
+                        logger.info(f"WS RX: completing request {request_id}")
+                        response = self._parse_response(payload)
+                        if not pending.future.done():
+                            pending.future.set_result(response)
+                        del self._pending_requests[request_id]
+                        return
+                
+                # Handle other events or errors inside the wrapper
+                if "error" in payload:
+                    logger.error(f"WS RX Error (wrapped): {payload['error']}")
+                    error = payload.get("error", {})
+                    msg = error.get("message", "Unknown error")
+                    pending.future.set_exception(Exception(msg))
+                    del self._pending_requests[request_id]
+                    return
+
+            # Standard Logic (Unwrapped or different format)
+            if "error" in data:
+                logger.error(f"WS RX Error: {data['error']}")
+                error = data.get("error", {})
+                msg = error.get("message", "Unknown error")
+                pending.future.set_exception(Exception(msg))
+                del self._pending_requests[request_id]
+                return
+
+            if "choices" in data:
+                # Standard response
+                logger.info(f"WS RX: completing request {request_id}")
+                response = self._parse_response(data)
                 if not pending.future.done():
                     pending.future.set_result(response)
-                
                 del self._pending_requests[request_id]
+                return
                 
-            elif msg_type == "chat.completions.error":
-                # Error response
-                error = data.get("error", "Unknown error")
-                
-                if not pending.future.done():
-                    pending.future.set_exception(Exception(error))
-                
-                del self._pending_requests[request_id]
-                
-            elif msg_type == "chat.completions.chunk":
-                # Streaming chunk - handled separately
-                pass
+            # If it's a chunk (streaming)
+            # data.get("object") == "chat.completion.chunk"
+            # Not fully supported in this simplified implemention
+            logger.warning(f"WS RX: Unhandled message type keys: {list(data.keys())}")
                 
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in WebSocket message: {e}")
-    
+
     def _parse_response(self, data: Dict) -> LLMResponse:
         """Parse OpenAI-format response."""
         choice = data.get("choices", [{}])[0]
@@ -299,26 +330,7 @@ class WebSocketLLMProvider(ILLMProvider):
             finish_reason=choice.get("finish_reason", "stop"),
             raw_response=data,
         )
-    
-    async def _reconnect(self) -> None:
-        """Attempt to reconnect with exponential backoff."""
-        if self._state == ConnectionState.RECONNECTING:
-            return
-        
-        self._state = ConnectionState.RECONNECTING
-        
-        for attempt in range(self._reconnect_attempts):
-            delay = self._reconnect_delay * (2 ** attempt)
-            
-            logger.info(f"Reconnecting in {delay}s (attempt {attempt + 1}/{self._reconnect_attempts})")
-            await asyncio.sleep(delay)
-            
-            if await self.connect():
-                return
-        
-        logger.error("Max reconnection attempts reached")
-        self._state = ConnectionState.DISCONNECTED
-    
+
     async def complete(
         self,
         messages: List[Message],
@@ -328,7 +340,7 @@ class WebSocketLLMProvider(ILLMProvider):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Generate a completion via WebSocket."""
+        """Generate a completion via WebSocket (OpenAI Realtime)."""
         import time
         
         if not self.is_connected:
@@ -336,10 +348,34 @@ class WebSocketLLMProvider(ILLMProvider):
             if not connected:
                 raise ConnectionError("WebSocket not connected")
         
-        model = model or self._model
         request_id = str(uuid.uuid4())
         
-        # Format messages
+        # 1. Update Session (optional) - Skipped as server rejected it
+        # session_update = { ... }
+        # await self._ws.send(json.dumps(session_update))
+        
+        # 2. Append User Message
+        # Realtime API is stateful. We assume a fresh state or appended state.
+        # But 'complete' implies stateless request in this interface. 
+        # Ideally we should clear context or treat it as a new item.
+        # For 'run-adaptive', it sends the whole history. 
+        # Realtime API works best with incremental updates.
+        # We will try to send the LAST user message as the new item.
+        # WARNING: If we send full history every time as separate items, we duplicate context 
+        # because the server maintains state!
+        #
+        # FIX: The `LLMProvider` interface assumes stateless REST-like behavior.
+        # To verify implementation, we will try to just send the *last* message 
+        # assuming the session persists. 
+        # But `engine` might send full history.
+        # But `engine` might differ.
+        # If `messages` contains full history, and we append only last, we rely on server state.
+        # If we assume server is stateless (new connection?), we'd need to send all.
+        #
+        # For safety in this "Hybrid" approach where we might reconnect, we should probably 
+        # just send the last message if we trust the persistent connection has history.
+        # Build payload (Standard OpenAI Chat Completion format)
+        # Convert messages to OpenAI format
         formatted_messages = []
         for msg in messages:
             formatted = {
@@ -351,17 +387,16 @@ class WebSocketLLMProvider(ILLMProvider):
             if msg.tool_call_id:
                 formatted["tool_call_id"] = msg.tool_call_id
             formatted_messages.append(formatted)
-        
-        # Build payload
+
         payload = {
-            "model": model,
+            "model": model or self._model,
             "messages": formatted_messages,
             "temperature": temperature,
         }
         
         if max_tokens:
             payload["max_tokens"] = max_tokens
-        
+            
         if tools:
             payload["tools"] = [
                 {
@@ -377,17 +412,11 @@ class WebSocketLLMProvider(ILLMProvider):
         
         payload.update(kwargs)
         
-        # Create request
-        request = {
-            "request_id": request_id,
-            "type": "chat.completions",
-            "payload": payload,
-        }
-        
         # Create future
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         
+        # We use FIFO correlation since raw OpenAI format doesn't support client-side request_id
         self._pending_requests[request_id] = PendingRequest(
             request_id=request_id,
             future=future,
@@ -396,10 +425,12 @@ class WebSocketLLMProvider(ILLMProvider):
         )
         
         try:
-            # Send request
-            await self._ws.send(json.dumps(request))
+            # Send raw payload
+            json_payload = json.dumps(payload)
+            logger.info(f"WS TX: {json_payload[:200]}...")
+            await self._ws.send(json_payload)
             
-            # Wait for response with timeout
+            # Wait for response
             return await asyncio.wait_for(future, timeout=self._timeout)
             
         except asyncio.TimeoutError:
@@ -411,7 +442,7 @@ class WebSocketLLMProvider(ILLMProvider):
             if request_id in self._pending_requests:
                 del self._pending_requests[request_id]
             raise
-    
+
     async def stream(
         self,
         messages: List[Message],
@@ -431,16 +462,17 @@ class WebSocketLLMProvider(ILLMProvider):
             **kwargs,
         )
         yield response.content
-    
+
     async def count_tokens(self, messages: List[Message], model: Optional[str] = None) -> int:
         """Estimate token count."""
         total_chars = sum(len(msg.content) for msg in messages)
         return total_chars // 4
-    
+
     async def health_check(self) -> bool:
         """Check connection health."""
         return self.is_connected
-    
+
     async def close(self) -> None:
         """Close the WebSocket connection."""
         await self.disconnect()
+

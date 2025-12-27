@@ -1,7 +1,6 @@
-# MUI Getting Started Demo
-# This script navigates to MUI and explores the documentation
-
 Go to mui.com
-Click on "Discover the Core libraries"
-Click on "Installation" in the sidebar
-Scroll down to see the npm install command
+Hover on "Products", then Click "Templates"
+then Click "Browse Templates"
+Scroll down until you find "Otis Kit PRO - Material Kit for React"
+then Click on it
+then click "Live Preview"

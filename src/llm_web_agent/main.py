@@ -429,6 +429,11 @@ async def _run_file_async(
         
         page = await browser.new_page()
         
+        # Create a SHARED context that persists across all steps
+        # This is critical for hover → click to work (stores _last_hover_selector)
+        from llm_web_agent.engine.run_context import RunContext
+        shared_context = RunContext()
+        
         # Execute each instruction
         total = len(instructions)
         succeeded = 0
@@ -453,10 +458,24 @@ async def _run_file_async(
             ) as progress:
                 task = progress.add_task("Executing...", total=None)
                 
-                result = await engine.run(page=page, task=instruction)
+                # Pass shared context to preserve hover state between steps
+                result = await engine.run(page=page, task=instruction, context=shared_context)
                 progress.update(task, completed=True)
             
             step_duration = (time.time() - step_start) * 1000
+            
+            # NEW TAB DETECTION: Check if a new tab opened and switch to it
+            try:
+                all_pages = page.get_all_pages()
+                if len(all_pages) > 1:
+                    # Switch to the newest page (last in list)
+                    newest_page = all_pages[-1]
+                    if newest_page.url != page.url:
+                        logging.info(f"New tab detected: {newest_page.url} - switching to it")
+                        console.print(f"  [dim]↳ New tab opened, switching to it[/dim]")
+                        page = newest_page
+            except Exception as e:
+                logging.debug(f"Tab detection failed: {e}")
             
             if result.success:
                 console.print(f"  [green]✓ Done[/green] ({result.duration_seconds:.1f}s)")

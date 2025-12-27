@@ -96,9 +96,9 @@ class InstructionParser:
         (re.compile(r'^(?:\d+\.?\s*)?(?:type|enter|input)\s+["\']?(.+?)["\']?\s+(?:in(?:to)?|on)\s+(?:the\s+)?(.+)$', re.I),
          StepIntent.FILL, {"value": 1, "target": 2}),
         
-        # Fill/Type - simple format: "Enter username value" or "Enter password value"
-        # Matches: "Enter username standard_user", "enter first-name John", "enter postal-code 12345"
-        (re.compile(r'^(?:\d+\.?\s*)?enter\s+(username|password|email|name|first[-_\s]?name|last[-_\s]?name|postal[-_\s]?code|zip[-_\s]?code|phone|address|city|state|country)\s+(.+)$', re.I),
+        # Fill/Type - simple format: "enter <field> <value>" where field is any identifier
+        # Matches: "enter user-name standard_user", "enter my-custom-field value", etc.
+        (re.compile(r'^(?:\d+\.?\s*)?enter\s+([\w][\w-]*)\s+(.+)$', re.I),
          StepIntent.FILL, {"target": 1, "value": 2}),
         
         # Fill/Type - "Type value" with quoted text

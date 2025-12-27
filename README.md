@@ -10,7 +10,16 @@
 
 ## 🎯 Key Features
 
-### 1. LLM-First Planning (NEW!)
+### 1. Robust Interaction Handling (Dec 2024 Update)
+
+- **Hover-Click Support**: Reliably handles dropdown menus by persisting hover state across steps and re-applying hover if needed.
+- **New Tab/Window Detection**: Automatically detects when clicks open new tabs and seamless switches context to the new page.
+- **Smart Click Reliability**: 
+  - Scrolls elements into view before clicking (fixes "click intercepted" issues).
+  - Multi-strategy click validation (normal -> force -> JS).
+  - Detects navigation/new tabs immediately to prevent redundant clicks.
+
+### 2. LLM-First Planning (NEW!)
 
 **One LLM call plans your entire task** with multiple locator strategies per step:
 
