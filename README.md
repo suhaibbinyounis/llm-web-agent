@@ -27,70 +27,26 @@ Engineered for reliability in complex, dynamic web environments:
   - **Dynamic Normalization**: Improved parser supports generic field matching and hover interactions without hardcoded constraints.
   - **One-Shot Planning**: Optimized token usage by normalizing complex instruction sets in a single LLM pass.
 
-### 2. LLM-First Planning
+### 2. Adaptive Intelligence Engine
 
-**One LLM call plans your entire task** with multiple locator strategies per step:
+- **LLM-First Planning**: One single LLM call plans the entire task execution strategy, generating a multi-step optimized plan.
+- **Pattern Learning System**: Automatically memorizes successful selector patterns per-site (e.g., "Login button" → `data-testid="login"`), drastically reducing resolution time on subsequent visits.
+- **Framework Detection**: Profiler identifies underlying frameworks (React, Vue, Angular) to prioritize framework-specific resolution strategies.
 
-```python
-from llm_web_agent.engine import AdaptiveEngine
+### 3. Real-Time Performance Architecture
 
-engine = AdaptiveEngine(llm_provider=llm)
-result = await engine.run(page, """
-    1. Enter username "standard_user"
-    2. Enter password "secret_sauce"
-    3. Click Login
-    4. Add "Sauce Labs Backpack" to cart
-    5. Complete checkout
-""")
-# Result: 13/13 steps completed in ~59 seconds
-```
+- **WebSocket Integration**: Native support for persistent low-latency WebSocket connections (`/v1/realtime`), eliminating HTTP handshake overhead for high-frequency interactions.
+- **Speculative Pre-Resolution**: Background processes resolve future steps (N+1, N+2) while the current step executes, creating a zero-latency "pipeline" effect.
 
-### 2. Accessibility-First Resolution
+### 4. Enterprise-Grade Observability
 
-Inspired by [Playwright MCP](https://github.com/microsoft/playwright-mcp), we prioritize **accessibility tree** methods for stable element finding:
+- **Comprehensive Reporting**: Generates detailed execution artifacts including HTML visual reports, JSON data dumps, and Markdown summaries.
+- **Visual Debugging**: Capture screenshots before/after every step and on error states for rapid root cause analysis.
+- **Traceability**: Full execution logs with timing metrics for performance optimization.
 
-| Priority | Method | Stability | Example |
-|----------|--------|-----------|---------|
-| 1 | `getByTestId()` | ⭐⭐⭐⭐⭐ | `data-testid="login-btn"` |
-| 2 | `getByRole()` | ⭐⭐⭐⭐ | `button` with name "Login" |
-| 3 | `getByLabel()` | ⭐⭐⭐⭐ | Form label association |
-| 4 | `getByText()` | ⭐⭐⭐ | Visible text content |
-| 5 | CSS Selector | ⭐⭐ | Fallback only |
-
-**Why it works**: Playwright's accessibility methods use the a11y tree, making them framework-agnostic (React, Angular, Vue all produce the same tree).
-
-### 3. Site Profiling & Framework Detection
-
-Automatically detects framework and learns optimal selectors:
-
-```python
-# Detects: React, Angular, Vue, Next.js, Nuxt, Svelte
-# Learns: Which selector types work on each site
-# Adapts: Reorders strategies based on success rate
-
-profile = await profiler.get_profile(page)
-# SiteProfile(framework='react', priorities=['testid', 'role', 'text'], ...)
-```
-
-### 4. Pattern Learning
-
-**Remembers what works** for instant resolution next time:
-
-```
-First time: "Login button" → tries 3 strategies → testid works ✓
-Next time:  "Signup button" → uses testid pattern FIRST → instant match!
-```
-
-### 5. Speculative Pre-Resolution
-
-Resolves steps N+1 and N+2 in the background while current step executes:
-
-```
-Executing Step 1... │ Background: Pre-resolving Step 2, 3
-Executing Step 2... │ Background: Pre-resolving Step 3, 4 (already cached!)
-```
 
 ---
+
 
 ## 🏗️ Architecture
 
