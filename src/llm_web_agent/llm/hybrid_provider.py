@@ -44,7 +44,7 @@ class HybridLLMProvider(ILLMProvider):
     
     def __init__(
         self,
-        ws_url: str = "ws://127.0.0.1:3030/ws/chat",
+        ws_url: str = "ws://127.0.0.1:3030/v1/realtime",
         http_url: str = "http://127.0.0.1:3030",
         api_key: Optional[str] = None,
         model: str = "gpt-4.1",
@@ -311,7 +311,7 @@ def create_provider(
     if use_websocket:
         # Convert HTTP URL to WebSocket URL
         ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws_url = ws_url.rstrip("/") + "/ws/chat"
+        ws_url = ws_url.rstrip("/") + "/v1/realtime"
         
         return HybridLLMProvider(
             ws_url=ws_url,

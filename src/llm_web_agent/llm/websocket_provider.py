@@ -64,7 +64,7 @@ class WebSocketLLMProvider(ILLMProvider):
     
     def __init__(
         self,
-        ws_url: str = "ws://127.0.0.1:3030/ws/chat",
+        ws_url: str = "ws://127.0.0.1:3030/v1/realtime",
         api_key: Optional[str] = None,
         model: str = "gpt-4.1",
         timeout: float = 120.0,

@@ -679,7 +679,7 @@ async def _run_adaptive_async(
             from llm_web_agent.llm import HybridLLMProvider
             
             ws_url = api_url.replace("http://", "ws://").replace("https://", "wss://")
-            ws_url = ws_url.rstrip("/") + "/ws/chat"
+            ws_url = ws_url.rstrip("/") + "/v1/realtime"
             
             llm = HybridLLMProvider(
                 ws_url=ws_url,
