@@ -214,6 +214,9 @@ def run_file(
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    report: bool = typer.Option(False, "--report", "-r", help="Generate detailed execution report"),
+    report_dir: str = typer.Option("./reports", "--report-dir", help="Output directory for reports"),
+    report_formats: str = typer.Option("json,md,html", "--report-formats", help="Report formats: json,md,html,pdf,docx"),
     timeout: int = typer.Option(120, "--timeout", "-t", help="Max execution time in seconds"),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
 ):
@@ -224,6 +227,7 @@ def run_file(
     
     Examples:
         llm-web-agent run-file instructions/mui_demo.txt --visible --browser chrome
+        llm-web-agent run-file instructions/checkout.txt --report --report-formats json,md,html
     """
     import pathlib
     from rich.table import Table
@@ -251,10 +255,12 @@ def run_file(
     
     # Display script info
     console.print()
+    mode_info = "📄 Report Generation" if report else ""
     console.print(Panel.fit(
         f"[bold blue]🤖 LLM Web Agent[/bold blue]\n"
         f"[dim]Script:[/dim] {path.name}\n"
-        f"[dim]Steps:[/dim] {len(instructions)}",
+        f"[dim]Steps:[/dim] {len(instructions)}"
+        + (f"\n[dim]Report:[/dim] {mode_info}" if report else ""),
         border_style="blue",
     ))
     
@@ -275,6 +281,8 @@ def run_file(
     if browser in ("chrome", "chrome-beta", "msedge", "msedge-beta"):
         channel = browser
     
+    formats_list = [f.strip() for f in report_formats.split(',')]
+    
     # Run with sequential execution per line
     asyncio.run(_run_file_async(
         instructions=instructions,
@@ -283,6 +291,10 @@ def run_file(
         model=model,
         api_url=api_url,
         timeout=timeout,
+        generate_report=report,
+        report_dir=report_dir,
+        report_formats=formats_list,
+        script_name=path.stem,
     ))
 
 
@@ -293,13 +305,31 @@ async def _run_file_async(
     api_url: str,
     timeout: int,
     browser_channel: Optional[str] = None,
+    generate_report: bool = False,
+    report_dir: str = "./reports",
+    report_formats: list = None,
+    script_name: str = "script",
 ):
     """Run instructions from file - each line separately."""
     import signal
+    import uuid
+    import time
+    from pathlib import Path
+    from datetime import datetime
+    
+    report_formats = report_formats or ['json', 'md', 'html']
+    run_id = str(uuid.uuid4())[:8]
     
     browser = None
     llm = None
     cleanup_done = False
+    screenshot_mgr = None
+    step_data = []  # Collect step data for report
+    
+    # Initialize screenshot manager if reporting
+    if generate_report:
+        from llm_web_agent.reporting.screenshot_manager import ScreenshotManager
+        screenshot_mgr = ScreenshotManager(output_dir=report_dir, run_id=run_id)
     
     async def cleanup():
         nonlocal cleanup_done
@@ -326,6 +356,8 @@ async def _run_file_async(
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    
+    start_time = time.time()
     
     try:
         # Initialize LLM first (before browser)
@@ -367,7 +399,15 @@ async def _run_file_async(
         failed = 0
         
         for i, instruction in enumerate(instructions, 1):
+            step_start = time.time()
             console.print(f"[bold cyan]Step {i}/{total}:[/bold cyan] {instruction}")
+            
+            # Capture screenshot before if reporting
+            if screenshot_mgr:
+                try:
+                    await screenshot_mgr.capture(page, i, f"Before: {instruction[:50]}")
+                except:
+                    pass
             
             with Progress(
                 SpinnerColumn(),
@@ -380,13 +420,50 @@ async def _run_file_async(
                 result = await engine.run(page=page, task=instruction)
                 progress.update(task, completed=True)
             
+            step_duration = (time.time() - step_start) * 1000
+            
             if result.success:
                 console.print(f"  [green]✓ Done[/green] ({result.duration_seconds:.1f}s)")
                 succeeded += 1
+                
+                # Capture screenshot after if reporting
+                screenshot_path = None
+                if screenshot_mgr:
+                    try:
+                        ss = await screenshot_mgr.capture(page, i, f"After: {instruction[:50]}")
+                        screenshot_path = str(ss.path)
+                    except:
+                        pass
+                
+                step_data.append({
+                    "step_number": i,
+                    "instruction": instruction,
+                    "status": "success",
+                    "duration_ms": step_duration,
+                    "screenshot": screenshot_path,
+                    "error": None,
+                })
             else:
                 console.print(f"  [red]✗ Failed:[/red] {result.error}")
                 failed += 1
-                # Continue to next instruction
+                
+                # Capture error screenshot
+                if screenshot_mgr:
+                    try:
+                        await screenshot_mgr.capture_on_error(page, i, result.error or "Unknown error")
+                    except:
+                        pass
+                
+                step_data.append({
+                    "step_number": i,
+                    "instruction": instruction,
+                    "status": "failed",
+                    "duration_ms": step_duration,
+                    "screenshot": None,
+                    "error": result.error,
+                })
+        
+        total_duration = time.time() - start_time
         
         # Summary
         console.print()
@@ -400,6 +477,60 @@ async def _run_file_async(
                 f"[bold yellow]⚠ Completed: {succeeded}/{total} steps ({failed} failed)[/bold yellow]",
                 border_style="yellow",
             ))
+        
+        # Generate report if enabled
+        if generate_report:
+            console.print("\n[dim]📝 Generating reports...[/dim]")
+            from llm_web_agent.reporting.execution_report import (
+                ExecutionReportGenerator,
+                ExecutionReport,
+                StepDetail,
+            )
+            
+            # Build step details
+            steps = []
+            for sd in step_data:
+                steps.append(StepDetail(
+                    step_number=sd["step_number"],
+                    action="instruction",
+                    target=sd["instruction"],
+                    status=sd["status"],
+                    duration_ms=sd["duration_ms"],
+                    screenshot_after=sd["screenshot"],
+                    error=sd["error"],
+                ))
+            
+            # Create report
+            report = ExecutionReport(
+                run_id=run_id,
+                created_at=datetime.now(),
+                goal=f"Execute script: {script_name}",
+                success=failed == 0,
+                started_at=datetime.now(),
+                completed_at=datetime.now(),
+                duration_seconds=total_duration,
+                steps_total=total,
+                steps_completed=succeeded,
+                steps_failed=failed,
+                steps=steps,
+            )
+            
+            # Generate AI summary
+            try:
+                report_gen = ExecutionReportGenerator(
+                    output_dir=report_dir,
+                    include_screenshots=True,
+                )
+                await report_gen.generate_ai_content(report, llm)
+                
+                # Export
+                exported = report_gen.export_all(report, report_formats)
+                
+                console.print(f"[green]✓ Reports generated in: {report_dir}[/green]")
+                for fmt, path in exported.items():
+                    console.print(f"  - {Path(path).name}")
+            except Exception as e:
+                console.print(f"[yellow]⚠ Report generation error: {e}[/yellow]")
         
         # Keep browser open if visible
         if not headless:

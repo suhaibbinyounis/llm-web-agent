@@ -1,15 +1,15 @@
-1. Open the browser.
-2. Navigate to https://www.saucedemo.com.
-3. Enter username standard_user
-4. Enter password secret_sauce
-5. Click the login button.
-6. Wait for the page to load.
-7. Scroll down to view items.
-8. Click on “Sauce Labs Backpack.”
-9. Add it to the cart.
-10. Click the Shopping cart icon
-11. Proceed to checkout.
-12. Fill in first name, last name, postal code.
-13. Continue to payment.
-14. Review order summary.
-15. Finish checkout.
+Open the browser.
+Navigate to https://www.saucedemo.com.
+Enter username standard_user
+Enter password secret_sauce
+Click the login button.
+Wait for the page to load.
+Scroll down to view items.
+Click on “Sauce Labs Backpack.”
+Add it to the cart.
+Click the Shopping cart icon
+Proceed to checkout.
+Fill in first name, last name, postal code.
+Continue to payment.
+Review order summary.
+Finish checkout.
