@@ -214,6 +214,7 @@ def run_file(
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    websocket: bool = typer.Option(False, "--websocket", "--ws", help="Use WebSocket for low-latency LLM (persistent connection)"),
     report: bool = typer.Option(False, "--report", "-r", help="Generate detailed execution report"),
     report_dir: str = typer.Option("./reports", "--report-dir", help="Output directory for reports"),
     report_formats: str = typer.Option("json,md,html", "--report-formats", help="Report formats: json,md,html,pdf,docx"),
@@ -260,7 +261,8 @@ def run_file(
         f"[bold blue]🤖 LLM Web Agent[/bold blue]\n"
         f"[dim]Script:[/dim] {path.name}\n"
         f"[dim]Steps:[/dim] {len(instructions)}"
-        + (f"\n[dim]Report:[/dim] {mode_info}" if report else ""),
+        + (f"\n[dim]Report:[/dim] {mode_info}" if report else "")
+        + (f"\n[dim]Mode:[/dim] WebSocket (Low Latency)" if websocket else ""),
         border_style="blue",
     ))
     
@@ -294,6 +296,7 @@ def run_file(
         generate_report=report,
         report_dir=report_dir,
         report_formats=formats_list,
+        use_websocket=websocket,
         script_name=path.stem,
     ))
 
@@ -308,6 +311,7 @@ async def _run_file_async(
     generate_report: bool = False,
     report_dir: str = "./reports",
     report_formats: list = None,
+    use_websocket: bool = False,
     script_name: str = "script",
 ):
     """Run instructions from file - each line separately."""
@@ -362,7 +366,28 @@ async def _run_file_async(
     try:
         # Initialize LLM first (before browser)
         console.print("[dim]⏳ Connecting to LLM...[/dim]")
-        llm = OpenAIProvider(base_url=api_url, model=model)
+        
+        if use_websocket:
+            # Use hybrid provider with WebSocket support
+            from llm_web_agent.llm import HybridLLMProvider
+            
+            ws_url = api_url.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = ws_url.rstrip("/") + "/v1/realtime"
+            
+            llm = HybridLLMProvider(
+                ws_url=ws_url,
+                http_url=api_url,
+                model=model,
+            )
+            
+            # Try to establish WebSocket connection
+            connected = await llm.connect()
+            if llm.active_transport == "websocket":
+                console.print("[green]✓ WebSocket connected[/green]")
+            else:
+                console.print("[yellow]⚠ WebSocket unavailable, using HTTP[/yellow]")
+        else:
+            llm = OpenAIProvider(base_url=api_url, model=model)
         
         if not await llm.health_check():
             console.print(f"[yellow]⚠ LLM API at {api_url} may not be available[/yellow]")

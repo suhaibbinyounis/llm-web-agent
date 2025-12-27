@@ -147,7 +147,7 @@ class WebSocketLLMProvider(ILLMProvider):
             
             self._ws = await websockets.connect(
                 self._ws_url,
-                extra_headers=headers,
+                additional_headers=headers,
                 ping_interval=self._heartbeat_interval,
                 ping_timeout=10,
             )

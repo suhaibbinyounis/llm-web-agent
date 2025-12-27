@@ -152,15 +152,51 @@ pip install -e ".[all]"
 playwright install chromium
 ```
 
-### Basic Usage
+### Usage Guide
+
+#### 1. Adaptive Execution (Goal-Based)
+Best for general tasks. The agent plans and executes steps automatically.
 
 ```bash
-# Run with natural language instruction
-llm-web-agent run "go to google.com, search for Python tutorials"
+# Basic run
+llm-web-agent run-adaptive "Login to saucedemo.com as standard_user"
 
-# Run with visible browser
-llm-web-agent run "go to github.com, click Sign in" --visible
+# Run with visible browser (useful for debugging)
+llm-web-agent run-adaptive "search for cats on google" --visible
+
+# Run with Low-Latency WebSocket connection
+llm-web-agent run-adaptive "navigate to example.com" --websocket
 ```
+
+#### 2. Instruction Files (Script-Based)
+Execute a pre-defined list of instructions from a text file.
+
+```bash
+# Execute a script file
+llm-web-agent run-file instructions/user_flow.txt
+
+# Execute with report generation
+llm-web-agent run-file instructions/checkout.txt --report --report-dir ./my-reports
+```
+
+#### 3. Low-Latency WebSocket Support ⚡️
+Reduce LLM interaction latency by using a persistent WebSocket connection.
+
+```bash
+# Use the --websocket (or --ws) flag
+llm-web-agent run-adaptive "Find cheap flights" --websocket
+```
+*Note: Requires an LLM provider that supports the `/v1/realtime` endpoint (e.g., Copilot Gateway).*
+
+#### 4. Advanced Options
+
+| Flag | Description |
+|------|-------------|
+| `--visible` / `-v` | Run browser in headful mode (visible) |
+| `--websocket` / `--ws` | Use persistent WebSocket connection |
+| `--report` / `-r` | Generate detailed execution report (HTML/JSON/MD) |
+| `--model` | Specify LLM model (default: gpt-4.1) |
+| `--api-url` | Custom LLM API URL |
 
 ### Python API (New AdaptiveEngine)
 
