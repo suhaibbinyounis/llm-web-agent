@@ -179,7 +179,7 @@ playwright install chromium
 ### Usage Guide
 
 #### 1. Adaptive Execution (Goal-Based)
-Best for general tasks. The agent plans and executes steps automatically.
+Best for general tasks. The agent plans and executes steps automatically using the new Intelligence Engine.
 
 ```bash
 # Basic run
@@ -193,7 +193,7 @@ llm-web-agent run-adaptive "navigate to example.com" --websocket
 ```
 
 #### 2. Instruction Files (Script-Based)
-Execute a pre-defined list of instructions from a text file.
+Execute a pre-defined list of instructions from a text file, line by line.
 
 ```bash
 # Execute a script file
@@ -203,24 +203,36 @@ llm-web-agent run-file instructions/user_flow.txt
 llm-web-agent run-file instructions/checkout.txt --report --report-dir ./my-reports
 ```
 
-#### 3. Low-Latency WebSocket Support ⚡️
-Reduce LLM interaction latency by using a persistent WebSocket connection.
+#### 3. Single Instruction (Legacy)
+Execute a single atomic instruction.
 
 ```bash
-# Use the --websocket (or --ws) flag
-llm-web-agent run-adaptive "Find cheap flights" --websocket
+llm-web-agent run "go to google.com"
 ```
-*Note: Requires an LLM provider that supports the `/v1/realtime` endpoint (e.g., Copilot Gateway).*
 
-#### 4. Advanced Options
+### CLI Reference
 
-| Flag | Description |
-|------|-------------|
-| `--visible` / `-v` | Run browser in headful mode (visible) |
-| `--websocket` / `--ws` | Use persistent WebSocket connection |
-| `--report` / `-r` | Generate detailed execution report (HTML/JSON/MD) |
-| `--model` | Specify LLM model (default: gpt-4.1) |
-| `--api-url` | Custom LLM API URL |
+| Command | Argument | Description |
+|---------|----------|-------------|
+| `run-adaptive` | `GOAL` | **Recommended**. Plans and executes a high-level goal using the Adaptive Engine. |
+| `run-file` | `FILE` | Executes a newline-separated file of instructions sequence. |
+| `run` | `INSTRUCTION` | Executes a single raw instruction (Legacy). |
+| `health` | - | Checks connection to the configured LLM provider. |
+| `version` | - | Displays current version. |
+
+#### Common Options
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--visible` | `-v` | Run browser in headful mode (visible window). |
+| `--browser` | `-b` | Browser channel: `chromium` (default), `chrome`, `msedge`. |
+| `--websocket` | `--ws` | **High Performance**: Use persistent WebSocket connection for LLM. |
+| `--report` | `-r` | Generate HTML/JSON execution reports with screenshots. |
+| `--report-dir` | - | Directory to save reports (default: `./reports`). |
+| `--report-formats` | - | Comma-separated formats: `json,md,html` (default: all). |
+| `--model` | `-m` | LLM model name (default: `gpt-4.1`). |
+| `--api-url` | - | Custom API Base URL (default: `http://127.0.0.1:3030`). | 
+| `--verbose` |  | Enable debug logging. |
 
 ### Python API (New AdaptiveEngine)
 
