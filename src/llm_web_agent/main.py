@@ -490,7 +490,7 @@ async def _run_adaptive_async(
     browser_channel: Optional[str] = None,
     generate_report: bool = False,
     report_dir: str = "./reports",
-    report_formats: List[str] = None,
+    report_formats: list = None,
 ):
     """Run with AdaptiveEngine."""
     import signal
