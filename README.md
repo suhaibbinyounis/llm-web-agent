@@ -51,37 +51,49 @@ This project is **Open Source** work in progress. Join us in building the fastes
 
 ### 1. Robust Interaction & Navigation Engine (2025 Update)
 
-Engineered for reliability in complex, dynamic web environments:
+Engineered for reliability in complex, dynamic web environments using advanced browser context management:
 
 - **Context-Aware Navigation**:
-  - **Auto-Switching**: Intelligent detection of new tabs and windows, automatically shifting execution context to the active view.
-  - **State Persistence**: Shared execution context across instruction steps ensures transient states (like hover menus) are preserved.
+  - **Auto-Switching**: Implements a `PlaywrightContext` listener that tracks the `page.context.pages` array. When a new tab/popup exceeds the previous page count after an action, execution `ctx` automatically pivots to the newest `IPage` handle.
+  - **State Persistence**: Uses a shared `RunContext` object injected into the execution pipeline, allowing transient state (like `_last_hover_selector`) to persist across distinct `engine.run()` boundaries—critical for hover-dependent interactions (e.g., MUI menus).
 
 - **Adaptive Click Strategies**:
-  - **Visibility Assurance**: Automatic `scrollIntoView` pre-computation to eliminate "click intercepted" failures.
-  - **Multi-Layer Validation**: Hierarchical execution strategy (Standard → Force → JavaScript Injection) with DOM mutation verification.
-  - **Smart Deduplication**: Instant detection of navigation events or new tab openings to prevent redundant actions.
+  - **Visibility Assurance**: Pre-computes `element.scrollIntoView({behavior: "smooth", block: "center"})` before every click action to eliminate "click intercepted" exceptions caused by sticky headers or overlays.
+  - **Multi-Layer Validation**: Uses a hierarchical execution strategy:
+    1.  **Standard Click**: Playwright-native trust event.
+    2.  **Force Click**: Bypasses actionability checks if standard fails.
+    3.  **JS Injection**: Direct generic `HTMLElement.click()` via `page.evaluate()` as a fail-safe.
+  - **Smart Deduplication**: Monitors `page.url` and `browser.contexts` during click strategies. logical branches immediately abort retries if a navigation event or new tab is detected, designed to prevent duplicate form submissions or multi-tab spam.
 
 - **Enhanced Instruction Processing**:
-  - **Dynamic Normalization**: Improved parser supports generic field matching and hover interactions without hardcoded constraints.
-  - **One-Shot Planning**: Optimized token usage by normalizing complex instruction sets in a single LLM pass.
+  - **Dynamic Normalization**: Replaced rigid keyword matching with a flexible regex/LLM hybrid parser that supports generic field identifiers (`[\w][\w-]*`) and non-standard actions like "Hover", reducing token usage by normalizing complex NL instructions into standardized intermediate representation (IR) locally when possible.
 
 ### 2. Adaptive Intelligence Engine
 
-- **LLM-First Planning**: One single LLM call plans the entire task execution strategy, generating a multi-step optimized plan.
-- **Pattern Learning System**: Automatically memorizes successful selector patterns per-site (e.g., "Login button" → `data-testid="login"`), drastically reducing resolution time on subsequent visits.
-- **Framework Detection**: Profiler identifies underlying frameworks (React, Vue, Angular) to prioritize framework-specific resolution strategies.
+Treats browser automation as a search and optimization problem:
+
+- **LLM-First Planning**: Instead of iterative agents, we use a single "Planner" call that generates a structured JSON execution plan. This decouples reasoning (LLM) from execution (Python), allowing logical checks on the plan before a single browser action is taken.
+- **Pattern Learning System**:
+  - **Mechanism**: The `SelectorPatternTracker` maintains a persistent `sqlite3` or in-memory map of `(domain, semantic_intent) -> successful_selector`.
+  - **Outcome**: If `Sign In` was successfully clicked via `data-testid="login_v2"` on run #1, run #2 bypasses search algorithms and attempts the cached selector immediately (O(1) resolution).
+- **Framework Detection**: The `SiteProfiler` injects heuristics to detect JS frameworks (e.g., scanning for `_reactRootContainer` or `ng-version`). It dynamically re-weights the `AccessibilityResolver` strategies (e.g., favoring `data-test` attributes for React apps vs `aria-label` for standard HTML).
 
 ### 3. Real-Time Performance Architecture
 
-- **WebSocket Integration**: Native support for persistent low-latency WebSocket connections (`/v1/realtime`), eliminating HTTP handshake overhead for high-frequency interactions.
-- **Speculative Pre-Resolution**: Background processes resolve future steps (N+1, N+2) while the current step executes, creating a zero-latency "pipeline" effect.
+Maximizes throughput by eliminating HTTP overhead:
+
+- **WebSocket Integration**: Implements a persistent bidirectional connection using `websockets` library interacting with the `/v1/realtime` endpoint. This drops the per-request latency from ~500ms (HTTP handshake + headers) to ~50ms (packet overhead), critical for "chat-with-browser" experiences.
+- **Speculative Pre-Resolution**:
+  - **Pipeline**: While Step N computes an action (e.g., waiting for navigation), an asynchronous background task (`asyncio.create_task`) queries the LLM/DOM for Step N+1 and N+2.
+  - **Cache**: Locators are stored in a `Future`-based cache. When execution reaches Step N+1, the selector is often already resolved, resulting in near-zero user perception of "thinking time".
 
 ### 4. Enterprise-Grade Observability
 
-- **Comprehensive Reporting**: Generates detailed execution artifacts including HTML visual reports, JSON data dumps, and Markdown summaries.
-- **Visual Debugging**: Capture screenshots before/after every step and on error states for rapid root cause analysis.
-- **Traceability**: Full execution logs with timing metrics for performance optimization.
+- **Comprehensive Reporting**: The execution engine streams events to a structural logger that builds a DAG of the session. This is exported as:
+  - **HTML**: Interactive timeline of steps with screenshots.
+  - **JSON**: Machine-readable traces for CI/CD pipelines.
+- **Visual Debugging**: Uses `page.screenshot(full_page=False)` strategically before and after critical actions (clicks, navigation) and on `Exception` blocks, creating a visual frame-by-frame replay of failures.
+- **Traceability**: Every log line includes a session UUID and step ID, matching the `task.md` and report artifacts for auditability.
 
 
 ---
