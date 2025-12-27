@@ -447,3 +447,200 @@ class AdaptiveEngine:
             ExecutionPlan with all steps and locators
         """
         return await self._planner.plan(page, goal)
+    
+    async def run_with_report(
+        self,
+        page: "IPage",
+        goal: str,
+        output_dir: str = "./reports",
+        formats: List[str] = None,
+        capture_screenshots: bool = True,
+        generate_ai_summary: bool = True,
+        context: Optional[RunContext] = None,
+    ) -> "AdaptiveEngineResult":
+        """
+        Execute goal with comprehensive documentation generation.
+        
+        Captures screenshots at each step and generates reports in multiple formats.
+        
+        Args:
+            page: Browser page
+            goal: Natural language goal
+            output_dir: Directory for reports
+            formats: Report formats ['json', 'md', 'html', 'pdf', 'docx']
+            capture_screenshots: Whether to capture screenshots
+            generate_ai_summary: Whether to generate AI summary
+            context: Optional run context
+            
+        Returns:
+            AdaptiveEngineResult with execution details
+        """
+        from pathlib import Path
+        from llm_web_agent.reporting.execution_report import (
+            ExecutionReportGenerator,
+            ExecutionReport,
+            StepDetail,
+        )
+        from llm_web_agent.reporting.screenshot_manager import ScreenshotManager
+        
+        formats = formats or ['json', 'md', 'html']
+        
+        # Generate run ID
+        run_id = str(uuid.uuid4())[:8]
+        
+        # Initialize screenshot manager if needed
+        screenshot_mgr = None
+        screenshots: Dict[int, str] = {}
+        
+        if capture_screenshots:
+            screenshot_mgr = ScreenshotManager(
+                output_dir=output_dir,
+                run_id=run_id,
+            )
+        
+        # Override _execute_with_lookahead to capture screenshots
+        original_execute = self._execute_with_lookahead
+        
+        async def execute_with_screenshots(
+            page, plan, profile, ctx
+        ) -> List[StepResult]:
+            results = []
+            domain = urlparse(page.url).netloc
+            
+            # Start pre-resolving first N steps
+            for i in range(min(self._lookahead, len(plan.steps))):
+                self._start_speculative_resolution(page, plan.steps[i], profile)
+            
+            for i, step in enumerate(plan.steps):
+                step_number = i + 1
+                step_start = time.time()
+                
+                # Capture screenshot BEFORE action
+                if screenshot_mgr:
+                    try:
+                        await screenshot_mgr.capture(
+                            page, step_number,
+                            description=f"Before: {step.action.value} on '{step.target}'"
+                        )
+                    except Exception as e:
+                        logger.debug(f"Screenshot failed: {e}")
+                
+                try:
+                    resolution = await self._get_resolution(page, step, profile)
+                    
+                    if not resolution.success:
+                        # Capture error screenshot
+                        if screenshot_mgr:
+                            await screenshot_mgr.capture_on_error(
+                                page, step_number, f"Could not find: {step.target}"
+                            )
+                        
+                        results.append(StepResult(
+                            step=step,
+                            success=False,
+                            duration_ms=(time.time() - step_start) * 1000,
+                            error=f"Could not find element: {step.target}",
+                        ))
+                        
+                        if not step.optional:
+                            break
+                        continue
+                    
+                    # Execute action
+                    await self._execute_action(page, step, resolution, ctx)
+                    
+                    # Record success
+                    self._pattern_tracker.record_success(
+                        domain=domain,
+                        target=step.target,
+                        locator_type=resolution.locator_type.value if resolution.locator_type else 'unknown',
+                        selector=resolution.selector_used or '',
+                    )
+                    
+                    if resolution.locator_type:
+                        self._profiler.update_priority(
+                            domain, resolution.locator_type.value, success=True
+                        )
+                    
+                    # Capture screenshot AFTER action
+                    if screenshot_mgr:
+                        try:
+                            ss = await screenshot_mgr.capture(
+                                page, step_number,
+                                description=f"After: {step.action.value}"
+                            )
+                            screenshots[step_number] = str(ss.path)
+                        except Exception as e:
+                            logger.debug(f"Post-action screenshot failed: {e}")
+                    
+                    results.append(StepResult(
+                        step=step,
+                        success=True,
+                        duration_ms=(time.time() - step_start) * 1000,
+                        selector_used=resolution.selector_used,
+                        locator_type=resolution.locator_type,
+                    ))
+                    
+                    await self._wait_after_action(page, step, profile)
+                    
+                    if i + self._lookahead < len(plan.steps):
+                        self._start_speculative_resolution(
+                            page, plan.steps[i + self._lookahead], profile
+                        )
+                    
+                except Exception as e:
+                    logger.error(f"Step failed: {e}")
+                    if screenshot_mgr:
+                        await screenshot_mgr.capture_on_error(page, step_number, str(e))
+                    
+                    results.append(StepResult(
+                        step=step,
+                        success=False,
+                        duration_ms=(time.time() - step_start) * 1000,
+                        error=str(e),
+                    ))
+                    
+                    if not step.optional:
+                        break
+            
+            return results
+        
+        # Temporarily replace the method
+        self._execute_with_lookahead = execute_with_screenshots
+        
+        try:
+            # Run the execution
+            result = await self.run(page, goal, context)
+            
+            # Create report generator
+            report_gen = ExecutionReportGenerator(
+                output_dir=output_dir,
+                include_screenshots=capture_screenshots,
+            )
+            
+            # Create execution report
+            report = report_gen.create_report(
+                run_id=result.run_id,
+                goal=goal,
+                success=result.success,
+                step_results=result.step_results,
+                duration_seconds=result.duration_seconds,
+                framework_detected=result.framework_detected,
+                screenshots=screenshots,
+            )
+            
+            # Generate AI summary
+            if generate_ai_summary:
+                await report_gen.generate_ai_content(report, self._llm)
+            
+            # Export to all formats
+            exported = report_gen.export_all(report, formats)
+            
+            logger.info(f"Generated reports: {list(exported.keys())}")
+            
+            return result
+            
+        finally:
+            # Restore original method
+            self._execute_with_lookahead = original_execute
+

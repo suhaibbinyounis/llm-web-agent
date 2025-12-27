@@ -428,6 +428,9 @@ def run_adaptive(
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
     use_openai: bool = typer.Option(False, "--openai", help="Use OpenAI instead of Copilot Gateway"),
+    report: bool = typer.Option(False, "--report", "-r", help="Generate detailed execution report"),
+    report_dir: str = typer.Option("./reports", "--report-dir", help="Output directory for reports"),
+    report_formats: str = typer.Option("json,md,html", "--report-formats", help="Report formats: json,md,html,pdf,docx"),
     timeout: int = typer.Option(120, "--timeout", "-t", help="Max execution time in seconds"),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
 ):
@@ -439,10 +442,12 @@ def run_adaptive(
         - Accessibility-first element resolution
         - Pattern learning for instant re-resolution
         - Speculative pre-resolution (lookahead)
+        - Comprehensive report generation (--report)
     
     Examples:
         llm-web-agent run-adaptive "Login to saucedemo.com with standard_user" --visible
         llm-web-agent run-adaptive "Search for Python on Google" --openai
+        llm-web-agent run-adaptive "Complete checkout" --report --report-formats json,md,html,pdf
     """
     setup_logging(verbose)
     
@@ -450,12 +455,18 @@ def run_adaptive(
     if browser in ("chrome", "chrome-beta", "msedge", "msedge-beta"):
         channel = browser
     
+    mode_desc = "LLM-First Planning + Learning"
+    if report:
+        mode_desc += " + Report Generation"
+    
     console.print(Panel.fit(
         f"[bold blue]🚀 Adaptive Engine[/bold blue]\n"
-        f"[dim]Mode:[/dim] LLM-First Planning + Learning\n"
+        f"[dim]Mode:[/dim] {mode_desc}\n"
         f"[dim]Goal:[/dim] {goal[:60]}{'...' if len(goal) > 60 else ''}",
         border_style="blue",
     ))
+    
+    formats_list = [f.strip() for f in report_formats.split(',')]
     
     asyncio.run(_run_adaptive_async(
         goal=goal,
@@ -464,6 +475,9 @@ def run_adaptive(
         api_url=api_url,
         use_openai=use_openai,
         timeout=timeout,
+        generate_report=report,
+        report_dir=report_dir,
+        report_formats=formats_list,
     ))
 
 
@@ -474,11 +488,15 @@ async def _run_adaptive_async(
     use_openai: bool,
     timeout: int,
     browser_channel: Optional[str] = None,
+    generate_report: bool = False,
+    report_dir: str = "./reports",
+    report_formats: List[str] = None,
 ):
     """Run with AdaptiveEngine."""
     import signal
     from playwright.async_api import async_playwright
     
+    report_formats = report_formats or ['json', 'md', 'html']
     playwright_ctx = None
     browser_obj = None
     llm = None
@@ -570,9 +588,23 @@ async def _run_adaptive_async(
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            task = progress.add_task("Planning and executing...", total=None)
+            task_desc = "Planning and executing..."
+            if generate_report:
+                task_desc += " (capturing screenshots)"
+            task = progress.add_task(task_desc, total=None)
             
-            result = await engine.run(page=page, goal=goal)
+            # Use run_with_report if report flag is set
+            if generate_report:
+                result = await engine.run_with_report(
+                    page=page,
+                    goal=goal,
+                    output_dir=report_dir,
+                    formats=report_formats,
+                    capture_screenshots=True,
+                    generate_ai_summary=True,
+                )
+            else:
+                result = await engine.run(page=page, goal=goal)
             
             progress.update(task, completed=True)
         
@@ -601,6 +633,15 @@ async def _run_adaptive_async(
                 status = "[green]✓[/green]" if sr.success else "[red]✗[/red]"
                 loc = f"[{sr.locator_type.value}]" if sr.locator_type else ""
                 console.print(f"  {i}. {status} {sr.step.action.value}: {sr.step.target[:40]} {loc} ({sr.duration_ms:.0f}ms)")
+        
+        # Report info
+        if generate_report:
+            console.print(f"\n[dim]📄 Reports generated in: {report_dir}[/dim]")
+            from pathlib import Path
+            report_path = Path(report_dir)
+            if report_path.exists():
+                for f in report_path.glob(f"{result.run_id}*"):
+                    console.print(f"  - {f.name}")
         
         # Keep open if visible
         if not headless:

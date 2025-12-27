@@ -1,20 +1,45 @@
 """
-Reporting Module - Run documentation, logging, and exports.
+Reporting module for llm-web-agent.
 
-This module provides comprehensive reporting capabilities for agent runs,
-including step-by-step logs, screenshots, video recording, and exports.
+Provides tools for documenting and reporting on agent runs.
 """
 
-from llm_web_agent.reporting.run_report import RunReport, RunSummary
-from llm_web_agent.reporting.step_logger import StepLogger, StepLog
-from llm_web_agent.reporting.screenshot_manager import ScreenshotManager
-from llm_web_agent.reporting.artifacts import ArtifactManager
+from llm_web_agent.reporting.run_report import (
+    RunStatus,
+    StepSummary,
+    RunSummary,
+    RunReport,
+)
+from llm_web_agent.reporting.screenshot_manager import (
+    Screenshot,
+    ScreenshotManager,
+)
+from llm_web_agent.reporting.step_logger import (
+    LogLevel,
+    StepLog,
+    StepLogger,
+)
+from llm_web_agent.reporting.execution_report import (
+    StepDetail,
+    ExecutionReport,
+    ExecutionReportGenerator,
+)
 
 __all__ = [
-    "RunReport",
+    # Run Report
+    "RunStatus",
+    "StepSummary",
     "RunSummary",
-    "StepLogger",
-    "StepLog",
+    "RunReport",
+    # Screenshots
+    "Screenshot",
     "ScreenshotManager",
-    "ArtifactManager",
+    # Logging
+    "LogLevel",
+    "StepLog",
+    "StepLogger",
+    # Execution Report (NEW)
+    "StepDetail",
+    "ExecutionReport",
+    "ExecutionReportGenerator",
 ]
