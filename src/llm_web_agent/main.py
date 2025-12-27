@@ -559,6 +559,7 @@ def run_adaptive(
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
     api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
     use_openai: bool = typer.Option(False, "--openai", help="Use OpenAI instead of Copilot Gateway"),
+    websocket: bool = typer.Option(False, "--websocket", "--ws", help="Use WebSocket for low-latency LLM (persistent connection)"),
     report: bool = typer.Option(False, "--report", "-r", help="Generate detailed execution report"),
     report_dir: str = typer.Option("./reports", "--report-dir", help="Output directory for reports"),
     report_formats: str = typer.Option("json,md,html", "--report-formats", help="Report formats: json,md,html,pdf,docx"),
@@ -579,6 +580,7 @@ def run_adaptive(
         llm-web-agent run-adaptive "Login to saucedemo.com with standard_user" --visible
         llm-web-agent run-adaptive "Search for Python on Google" --openai
         llm-web-agent run-adaptive "Complete checkout" --report --report-formats json,md,html,pdf
+        llm-web-agent run-adaptive "Fill form" --websocket  # Low-latency mode
     """
     setup_logging(verbose)
     
@@ -587,6 +589,8 @@ def run_adaptive(
         channel = browser
     
     mode_desc = "LLM-First Planning + Learning"
+    if websocket:
+        mode_desc += " + WebSocket"
     if report:
         mode_desc += " + Report Generation"
     
@@ -605,6 +609,7 @@ def run_adaptive(
         browser_channel=channel,
         api_url=api_url,
         use_openai=use_openai,
+        use_websocket=websocket,
         timeout=timeout,
         generate_report=report,
         report_dir=report_dir,
@@ -619,6 +624,7 @@ async def _run_adaptive_async(
     use_openai: bool,
     timeout: int,
     browser_channel: Optional[str] = None,
+    use_websocket: bool = False,
     generate_report: bool = False,
     report_dir: str = "./reports",
     report_formats: list = None,
@@ -667,7 +673,28 @@ async def _run_adaptive_async(
     try:
         # Initialize LLM
         console.print("[dim]⏳ Initializing LLM provider...[/dim]")
-        if use_openai:
+        
+        if use_websocket:
+            # Use hybrid provider with WebSocket support
+            from llm_web_agent.llm import HybridLLMProvider
+            
+            ws_url = api_url.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = ws_url.rstrip("/") + "/ws/chat"
+            
+            llm = HybridLLMProvider(
+                ws_url=ws_url,
+                http_url=api_url,
+            )
+            
+            # Try to establish WebSocket connection
+            connected = await llm.connect()
+            if llm.active_transport == "websocket":
+                llm_name = "WebSocket (Hybrid)"
+                console.print("[green]✓ WebSocket connected[/green]")
+            else:
+                llm_name = "HTTP (WebSocket unavailable)"
+                console.print("[yellow]⚠ WebSocket unavailable, using HTTP[/yellow]")
+        elif use_openai:
             llm = OpenAIProvider(base_url=api_url)
             llm_name = "OpenAI"
         else:

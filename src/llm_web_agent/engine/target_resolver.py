@@ -1127,9 +1127,16 @@ class TargetResolver:
         """
         Find form fields by associated labels or nearby text.
         
+        Uses FormHandler for smart field matching:
+        - Label text association
+        - Placeholder matching  
+        - Name/ID attribute matching
+        - Fuzzy text matching
+        
         For targets like:
         - "username field" -> find input near "username" text
         - "email" -> find label[for] or input with matching id
+        - "first name" -> match against label "First Name"
         """
         target_lower = target.lower().strip()
         
@@ -1139,7 +1146,50 @@ class TargetResolver:
                 target_lower = target_lower[:-len(suffix)].strip()
                 break
         
-        # Strategy 1: Label with for attribute
+        # NEW: Try FormHandler for smart field matching
+        try:
+            from llm_web_agent.engine.form_handler import FormFieldAnalyzer
+            
+            analyzer = FormFieldAnalyzer()
+            context = await analyzer.analyze(page)
+            
+            if context.fields:
+                # Find best matching field
+                best_match = None
+                best_score = 0.6  # Minimum threshold
+                
+                for field in context.fields:
+                    if not field.is_visible or field.is_disabled:
+                        continue
+                    
+                    score = field.matches(target_lower)
+                    if score > best_score:
+                        best_score = score
+                        best_match = field
+                
+                if best_match:
+                    # Build unique selector for this specific field
+                    if best_match.id:
+                        selector = f"#{best_match.id}"
+                    elif best_match.name:
+                        selector = f"[name='{best_match.name}']"
+                    else:
+                        selector = best_match.selector
+                    
+                    # Verify the selector works
+                    element = await page.query_selector(selector)
+                    if element and await element.is_visible():
+                        logger.debug(f"FormHandler matched '{target}' to field: {best_match.get_best_identifier()} (score: {best_score:.2f})")
+                        return ResolvedTarget(
+                            selector=selector,
+                            element=element,
+                            strategy=ResolutionStrategy.SMART,
+                            confidence=best_score,
+                        )
+        except Exception as e:
+            logger.debug(f"FormHandler matching failed: {e}")
+        
+        # Fallback: Strategy 1: Label with for attribute
         try:
             label = await page.query_selector(f'label:has-text("{target_lower}")')
             if label:
@@ -1172,9 +1222,62 @@ class TargetResolver:
         except Exception:
             pass
         
-        # Strategy 3: Input near text (using DOM position)
+        # Strategy 3: getByLabel (Playwright accessibility locator)
         try:
-            # Find all inputs/textareas
+            locator = page.get_by_label(target_lower, exact=False)
+            count = await locator.count()
+            if count == 1:
+                element = locator.first
+                if await element.is_visible():
+                    # Build a selector for the element
+                    element_id = await element.get_attribute("id")
+                    if element_id:
+                        selector = f"#{element_id}"
+                    else:
+                        name = await element.get_attribute("name")
+                        if name:
+                            selector = f"[name='{name}']"
+                        else:
+                            selector = f"input >> nth=0"
+                    
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        strategy=ResolutionStrategy.SMART,
+                        confidence=0.9,
+                    )
+        except Exception:
+            pass
+        
+        # Strategy 4: Input by placeholder
+        try:
+            locator = page.get_by_placeholder(target_lower, exact=False)
+            count = await locator.count()
+            if count == 1:
+                element = locator.first
+                if await element.is_visible():
+                    element_id = await element.get_attribute("id")
+                    if element_id:
+                        selector = f"#{element_id}"
+                    else:
+                        name = await element.get_attribute("name")
+                        if name:
+                            selector = f"[name='{name}']"
+                        else:
+                            placeholder = await element.get_attribute("placeholder")
+                            selector = f"[placeholder='{placeholder}']"
+                    
+                    return ResolvedTarget(
+                        selector=selector,
+                        element=element,
+                        strategy=ResolutionStrategy.SMART,
+                        confidence=0.85,
+                    )
+        except Exception:
+            pass
+        
+        # Strategy 5: Input/textarea with matching attributes
+        try:
             inputs = await page.query_selector_all('input:not([type="hidden"]), textarea, select')
             
             for inp in inputs:

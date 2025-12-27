@@ -259,9 +259,55 @@ class BatchExecutor:
         steps: List[TaskStep],
         context: RunContext,
     ) -> List[StepResult]:
-        """Execute multiple fill operations efficiently."""
+        """
+        Execute multiple fill operations using FormFiller.
+        
+        Uses smart field matching to ensure each field is filled correctly.
+        """
         results = []
         
+        # NEW: Try FormFiller for smart multi-field filling
+        try:
+            from llm_web_agent.engine.form_handler import FormFiller, FormValidator
+            
+            filler = FormFiller(page)
+            
+            # Build field_values dict from steps
+            field_values = {}
+            for step in steps:
+                value = step.value or ""
+                if context.has_references(value):
+                    value = context.resolve(value)
+                field_values[step.target] = value
+            
+            # Fill all fields using smart matching
+            fill_results = await filler.fill_fields(field_values)
+            
+            # Map results back to steps
+            result_map = {target: (success, error) for target, success, error in fill_results}
+            
+            for step in steps:
+                success, error = result_map.get(step.target, (False, "Field not matched"))
+                
+                if success:
+                    step.mark_success()
+                    results.append(StepResult(step=step, success=True))
+                else:
+                    step.mark_failed(error or "Unknown error")
+                    results.append(StepResult(step=step, success=False, error=error))
+            
+            # Check for form validation errors
+            validator = FormValidator(page)
+            has_errors, errors = await validator.check_errors()
+            if has_errors:
+                logger.warning(f"Form validation errors: {errors}")
+            
+            return results
+            
+        except Exception as e:
+            logger.warning(f"FormFiller failed, falling back to resolver: {e}")
+        
+        # FALLBACK: Original resolver-based approach
         # Resolve all targets first
         targets: Dict[str, Tuple[TaskStep, ResolvedTarget]] = {}
         for step in steps:

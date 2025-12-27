@@ -21,19 +21,33 @@ Convert these natural language instructions into our standard format.
 **OUR FORMAT:**
 - navigate: URL
 - click: TARGET
-- fill: TARGET with VALUE
+- fill: TARGET with VALUE  ← TARGET must be UNIQUE field identifier
 - type: VALUE
 - scroll: down/up
 - wait: SECONDS
 - press: KEY
 
-**RULES:**
+**CRITICAL RULES FOR FILL:**
+1. For form fields, use the EXACT field name that distinguishes it:
+   - "first-name" NOT "input[type=text]"
+   - "lastName" or "last-name" NOT "text input"
+   - "postalCode" or "postal-code" or "zip" NOT just "input"
+   - "email" NOT "text field"
+2. Use common naming patterns:
+   - first-name, firstName, first_name
+   - last-name, lastName, last_name  
+   - postal-code, postalCode, zip, zipCode
+   - email, emailAddress
+   - password, passwd, pwd
+3. Each field MUST have a UNIQUE target so they don't get confused
+
+**GENERAL RULES:**
 1. Skip meta-instructions like "Open browser" (already open)
-2. For targets, use the most specific identifier you can guess:
-   - IDs: "login-button", "user-name", "shopping_cart_container"
-   - Button text: "Login", "Add to Cart", "Checkout"
-   - Common patterns for e-commerce: cart icon, checkout button
-3. For saucedemo.com specifically, use known IDs where applicable
+2. For clicks, use specific identifiers:
+   - Button IDs: "login-button", "checkout", "continue", "finish"
+   - Button text: "Login", "Add to Cart", "Submit"
+3. For saucedemo.com, use known IDs: user-name, password, login-button, checkout, first-name, last-name, postal-code, continue, finish
+4. When instruction says "Fill first name, last name, postal code" - create SEPARATE fill actions with UNIQUE targets
 
 **INSTRUCTIONS TO CONVERT:**
 {instructions}
@@ -41,9 +55,10 @@ Convert these natural language instructions into our standard format.
 **RESPOND WITH JSON ARRAY:**
 [
   {{"action": "navigate", "url": "https://example.com"}},
-  {{"action": "fill", "target": "username", "value": "user123"}},
-  {{"action": "click", "target": "Login"}},
-  {{"action": "click", "target": "shopping_cart_container"}},
+  {{"action": "fill", "target": "first-name", "value": "John"}},
+  {{"action": "fill", "target": "last-name", "value": "Doe"}},
+  {{"action": "fill", "target": "postal-code", "value": "12345"}},
+  {{"action": "click", "target": "continue"}},
   ...
 ]
 
