@@ -208,19 +208,23 @@ playwright install chromium
 
 #### 🛠️ Troubleshooting
 
-**"Command not found: llm-web-agent"**
+**"Command not found: llm-web-agent" on Windows?**
 
-If you see this error, your virtual environment is likely not activated.
-- **Mac/Linux**: Run `source .venv/bin/activate`
-- **Windows**: Run `.venv\Scripts\Activate.ps1`
+This often happens if your Python Scripts directory is not in your system PATH, even if you installed successfully.
 
-Alternatively, you can run the module directly without activation:
-```bash
-# Mac/Linux
-./.venv/bin/python -m llm_web_agent.main --help
+**Solution 1: Use `python -m` (Recommended)**
+This always works as long as the package is installed:
+```powershell
+python -m llm_web_agent.main gui
+# or
+python -m llm_web_agent.main run-adaptive "Find cheap flights"
+```
 
-# Windows
-.\.venv\Scripts\python.exe -m llm_web_agent.main --help
+**Solution 2: Ensure Virtual Env is Active**
+Make sure you see `(.venv)` at the start of your command prompt.
+```powershell
+.venv\Scripts\Activate.ps1
+llm-web-agent --help
 ```
 
 ### Usage Guide
