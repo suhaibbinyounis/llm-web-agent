@@ -33,13 +33,20 @@ GUI_SETTINGS_PATH = Path.home() / ".llm-web-agent" / "gui_settings.json"
 
 
 class GUISettings(BaseModel):
-    """GUI-specific settings that persist across sessions."""
+    """
+    GUI-specific settings that persist across sessions.
+    
+    LLM settings (model, api_url) default to None and are loaded from:
+    1. Saved GUI settings file (~/.llm-web-agent/gui_settings.json)
+    2. Environment variables (LLM_WEB_AGENT__LLM__MODEL, etc.)
+    3. Or set manually in the GUI
+    """
     # Mode
     engine_mode: str = Field("instructions", description="instructions | goal")
     
-    # LLM
-    model: str = Field("gpt-4.1", description="LLM model to use")
-    api_url: str = Field("http://127.0.0.1:3030", description="API URL")
+    # LLM - No defaults! User must configure these
+    model: Optional[str] = Field(None, description="LLM model (e.g., gpt-4o)")
+    api_url: Optional[str] = Field(None, description="LLM API URL (e.g., https://api.openai.com/v1)")
     use_websocket: bool = Field(True, description="Use WebSocket for LLM")
     
     # Browser
@@ -58,15 +65,36 @@ class GUISettings(BaseModel):
 
 
 def load_gui_settings() -> GUISettings:
-    """Load GUI settings from file, or return defaults."""
+    """
+    Load GUI settings, merging persisted settings with central config.
+    
+    Priority:
+    1. Saved GUI settings file (~/.llm-web-agent/gui_settings.json)
+    2. Central config (env vars, config.yaml)
+    3. Defaults
+    """
+    from llm_web_agent.config import get_settings
+    
+    # Start with saved GUI settings if they exist
+    gui_data = {}
     if GUI_SETTINGS_PATH.exists():
         try:
             with open(GUI_SETTINGS_PATH, "r") as f:
-                data = json.load(f)
-            return GUISettings(**data)
+                gui_data = json.load(f)
         except Exception as e:
             logger.warning(f"Failed to load GUI settings: {e}")
-    return GUISettings()
+    
+    # Create settings, filling from central config if not set
+    central = get_settings()
+    settings = GUISettings(**gui_data)
+    
+    # Fill missing values from central config
+    if settings.model is None and central.llm.model:
+        settings.model = central.llm.model
+    if settings.api_url is None and central.llm.base_url:
+        settings.api_url = central.llm.base_url
+    
+    return settings
 
 
 def save_gui_settings(settings: GUISettings) -> None:

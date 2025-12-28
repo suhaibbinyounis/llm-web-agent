@@ -36,8 +36,8 @@ class OpenAIProvider(ILLMProvider):
     
     Example:
         >>> provider = OpenAIProvider(
-        ...     base_url="http://127.0.0.1:3030",
-        ...     model="gpt-4.1"
+        ...     base_url="https://api.openai.com/v1",
+        ...     model="gpt-4o"
         ... )
         >>> response = await provider.complete([
         ...     Message.user("Hello!")
@@ -46,9 +46,9 @@ class OpenAIProvider(ILLMProvider):
     
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:3030",
+        base_url: str,  # Required - no default
+        model: str,     # Required - no default
         api_key: Optional[str] = None,
-        model: str = "gpt-4.1",
         timeout: float = 120.0,
     ):
         """
@@ -56,12 +56,13 @@ class OpenAIProvider(ILLMProvider):
         
         Args:
             base_url: Base URL for the API (no /v1 suffix needed)
-            api_key: Optional API key
-            model: Default model to use
+            model: Model to use for completions
+            api_key: Optional API key (reads from OPENAI_API_KEY env var if not set)
             timeout: Request timeout in seconds
         """
+        import os
         self._base_url = base_url.rstrip("/")
-        self._api_key = api_key or "not-needed"
+        self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "not-needed")
         self._model = model
         self._timeout = timeout
         

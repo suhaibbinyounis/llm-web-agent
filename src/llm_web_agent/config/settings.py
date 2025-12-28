@@ -62,17 +62,22 @@ class LLMSettings(BaseModel):
     
     Attributes:
         provider: LLM provider to use
-        model: Model name/identifier
+        model: Model name/identifier (required - no default)
         api_key: API key (loaded from environment if not set)
-        base_url: Custom API endpoint URL
+        base_url: API endpoint URL (required - no default)
         temperature: Sampling temperature
         max_tokens: Maximum tokens in response
         timeout: Request timeout in seconds
+    
+    Configuration via environment variables:
+        LLM_WEB_AGENT__LLM__PROVIDER=openai
+        LLM_WEB_AGENT__LLM__MODEL=gpt-4o
+        LLM_WEB_AGENT__LLM__BASE_URL=https://api.openai.com/v1
     """
     provider: Literal["openai", "anthropic", "copilot", "custom"] = "openai"
-    model: str = "gpt-4o"
-    api_key: Optional[SecretStr] = None
-    base_url: Optional[str] = None
+    model: Optional[str] = None  # Required - user must set via env or CLI
+    api_key: Optional[SecretStr] = None  # Can be set via OPENAI_API_KEY env var
+    base_url: Optional[str] = None  # Required for custom providers
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1, le=128000)
     timeout: int = Field(default=60, ge=5, le=300)

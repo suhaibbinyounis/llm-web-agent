@@ -1,6 +1,11 @@
 """
 LLM Web Agent - CLI Entry Point.
 
+Configuration Priority:
+    1. CLI arguments (--model, --api-url, etc.)
+    2. Environment variables (LLM_WEB_AGENT__LLM__MODEL, etc.)
+    3. Config file (config.yaml)
+
 Usage:
     llm-web-agent run "go to google.com and search for cats"
     llm-web-agent run "login to example.com" --visible
@@ -22,6 +27,7 @@ from llm_web_agent.llm.openai_provider import OpenAIProvider
 from llm_web_agent.llm.copilot_provider import CopilotProvider
 from llm_web_agent.engine.engine import Engine
 from llm_web_agent.engine.adaptive_engine import AdaptiveEngine
+from llm_web_agent.config import get_settings
 
 # Create the CLI app
 app = typer.Typer(
@@ -49,8 +55,8 @@ def run(
     instruction: str = typer.Argument(..., help="Natural language instruction to execute"),
     visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
-    model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
-    api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="LLM model (default: from config)"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="LLM API base URL (default: from config)"),
     websocket: bool = typer.Option(False, "--websocket", "--ws", help="Use WebSocket for low-latency LLM"),
     timeout: int = typer.Option(60, "--timeout", "-t", help="Max execution time in seconds"),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
@@ -69,6 +75,26 @@ def run(
     """
     setup_logging(verbose)
     
+    # Load settings from config/env, then override with CLI args
+    settings = get_settings()
+    
+    # Use CLI args if provided, otherwise fall back to settings
+    effective_model = model or settings.llm.model
+    effective_api_url = api_url or settings.llm.base_url
+    
+    # Validate required settings
+    if not effective_model:
+        console.print("[red]Error: No model configured.[/red]")
+        console.print("Set via CLI: --model gpt-4o")
+        console.print("Or env var: LLM_WEB_AGENT__LLM__MODEL=gpt-4o")
+        raise typer.Exit(1)
+    
+    if not effective_api_url:
+        console.print("[red]Error: No API URL configured.[/red]")
+        console.print("Set via CLI: --api-url https://api.openai.com/v1")
+        console.print("Or env var: LLM_WEB_AGENT__LLM__BASE_URL=https://api.openai.com/v1")
+        raise typer.Exit(1)
+    
     # Parse browser option
     channel = None
     if browser in ("chrome", "chrome-beta", "msedge", "msedge-beta"):
@@ -79,6 +105,7 @@ def run(
     console.print(Panel.fit(
         f"[bold blue]🤖 LLM Web Agent[/bold blue]\n"
         f"[dim]Browser:[/dim] {browser_label}\n"
+        f"[dim]Model:[/dim] {effective_model}\n"
         f"[dim]Instruction:[/dim] {instruction}"
         + (f"\n[dim]Mode:[/dim] WebSocket (Low Latency)" if websocket else ""),
         border_style="blue",
@@ -88,8 +115,8 @@ def run(
         instruction=instruction,
         headless=not visible,
         browser_channel=channel,
-        model=model,
-        api_url=api_url,
+        model=effective_model,
+        api_url=effective_api_url,
         timeout=timeout,
         use_websocket=websocket,
     ))
@@ -223,8 +250,8 @@ def run_file(
     file_path: str = typer.Argument(..., help="Path to instruction file (.txt)"),
     visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
-    model: str = typer.Option("gpt-4.1", "--model", "-m", help="LLM model to use"),
-    api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="LLM model to use"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="LLM API base URL"),
     websocket: bool = typer.Option(False, "--websocket", "--ws", help="Use WebSocket for low-latency LLM (persistent connection)"),
     report: bool = typer.Option(False, "--report", "-r", help="Generate detailed execution report"),
     report_dir: str = typer.Option("./reports", "--report-dir", help="Output directory for reports"),
@@ -612,7 +639,7 @@ def run_adaptive(
     goal: str = typer.Argument(..., help="Natural language goal (multi-step supported)"),
     visible: bool = typer.Option(False, "--visible", "-v", help="Run with visible browser"),
     browser: str = typer.Option("chromium", "--browser", "-b", help="Browser: chromium, chrome, msedge"),
-    api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="LLM API base URL"),
     use_openai: bool = typer.Option(False, "--openai", help="Use OpenAI instead of Copilot Gateway"),
     websocket: bool = typer.Option(False, "--websocket", "--ws", help="Use WebSocket for low-latency LLM (persistent connection)"),
     report: bool = typer.Option(False, "--report", "-r", help="Generate detailed execution report"),
@@ -939,7 +966,7 @@ def version():
 
 @app.command()
 def health(
-    api_url: str = typer.Option("http://127.0.0.1:3030", "--api-url", help="LLM API base URL"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="LLM API base URL"),
 ):
     """Check if LLM API is available."""
     async def check():
