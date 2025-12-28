@@ -188,7 +188,10 @@ pip install -e ".[all]"
 playwright install chromium
 ```
 
-#### 🪟 Windows (PowerShell)
+#### 🪟 Windows (Step-by-Step)
+
+1. Open **PowerShell** as Administrator (optional but recommended)
+2. Run the following commands one by one:
 
 ```powershell
 # 1. Clone the repository
@@ -197,14 +200,19 @@ cd llm-web-agent
 
 # 2. Create and activate virtual environment
 python -m venv .venv
+# Note: You might need to run: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .venv\Scripts\Activate.ps1
 
-# 3. Install the package (including GUI dependencies)
+# 3. Install the package
 pip install -e ".[all]"
 
 # 4. Install Playwright browsers
 playwright install chromium
+
+# 5. Run the GUI (Success!)
+python -m llm_web_agent.main gui
 ```
+*Note: We use `python -m llm_web_agent.main` because it works reliably even if your system PATH is not configured perfectly.*
 
 #### 🛠️ Troubleshooting
 
