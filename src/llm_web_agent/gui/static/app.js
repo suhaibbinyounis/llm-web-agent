@@ -60,6 +60,7 @@ const elements = {
     useWebsocket: document.getElementById('useWebsocket'),
     generateReport: document.getElementById('generateReport'),
     instructionFile: document.getElementById('instructionFile'),
+    localFileInput: document.getElementById('localFileInput'),
 
     // Preview
     browserFrame: document.getElementById('browserFrame'),
@@ -801,6 +802,25 @@ function setupEventListeners() {
             e.preventDefault();
             elements.settingsModal.classList.add('show');
         }
+    });
+
+    // Local file input handler
+    elements.localFileInput?.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            elements.taskInput.value = evt.target.result;
+            updateInstructionCount();
+            showToast(`Loaded ${file.name}`, 'success');
+            // Switch to instructions mode
+            setMode('instructions');
+        };
+        reader.onerror = () => {
+            showToast('Failed to read file', 'error');
+        };
+        reader.readAsText(file);
     });
 }
 

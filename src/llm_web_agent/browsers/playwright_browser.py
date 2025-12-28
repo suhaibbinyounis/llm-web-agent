@@ -149,7 +149,7 @@ class PlaywrightPage(IPage):
         try:
             element = await self._page.wait_for_selector(
                 selector,
-                timeout=timeout or 30000,
+                timeout=timeout,  # Let Playwright use its default if None
                 state=state,
             )
             if element:
