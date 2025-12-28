@@ -57,8 +57,15 @@ anthropic = [
 openai = [
     "openai>=1.3.0",
 ]
+gui = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "sse-starlette>=1.6.0",
+    "aiofiles>=23.0.0",
+    "python-multipart>=0.0.6",
+]
 all = [
-    "llm-web-agent[dev,selenium,anthropic,openai]",
+    "llm-web-agent[dev,selenium,anthropic,openai,gui]",
 ]
 
 [project.scripts]

@@ -210,6 +210,26 @@ Execute a single atomic instruction.
 llm-web-agent run "go to google.com"
 ```
 
+#### 4. GUI Web Interface (New!)
+
+Launch a browser-based control panel for visual task execution and monitoring.
+
+```bash
+# Launch the GUI
+llm-web-agent gui
+
+# Open http://127.0.0.1:8000 in your browser
+```
+
+**GUI Features:**
+- **Dual Execution Modes**: 
+  - **Instructions Mode** - Step-by-step commands (like `run-file`)
+  - **Goal Mode** - High-level objectives (like `run-adaptive`)
+- **Live Browser Preview** - Watch the agent interact with pages in real-time
+- **Step-by-Step Execution Log** - Track progress with status indicators
+- **Persistent Settings** - Saved to `~/.llm-web-agent/gui_settings.json`
+- **Configurable Options** - Connection, Browser, Execution, and Report settings
+
 ### CLI Reference
 
 | Command | Argument | Description |
@@ -217,6 +237,7 @@ llm-web-agent run "go to google.com"
 | `run-adaptive` | `GOAL` | **Recommended**. Plans and executes a high-level goal using the Adaptive Engine. |
 | `run-file` | `FILE` | Executes a newline-separated file of instructions sequence. |
 | `run` | `INSTRUCTION` | Executes a single raw instruction (Legacy). |
+| `gui` | - | **New!** Launch the web-based GUI at `http://127.0.0.1:8000`. |
 | `health` | - | Checks connection to the configured LLM provider. |
 | `version` | - | Displays current version. |
 

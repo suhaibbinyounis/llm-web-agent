@@ -877,6 +877,59 @@ async def _run_adaptive_async(
 
 
 @app.command()
+def gui(
+    port: int = typer.Option(8000, "--port", "-p", help="Port to run the GUI server on"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to (use 0.0.0.0 for LAN)"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser automatically"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug mode"),
+):
+    """
+    Launch the GUI control panel in your browser.
+    
+    This starts a web server that provides a visual interface for:
+      - Starting/stopping/pausing agent tasks
+      - Viewing live browser preview
+      - Configuring settings
+      - Viewing execution logs in real-time
+      - Browsing run history
+    
+    Examples:
+        llm-web-agent gui                    # Start on localhost:8000
+        llm-web-agent gui --port 3000        # Custom port
+        llm-web-agent gui --host 0.0.0.0     # Allow LAN access
+        llm-web-agent gui --no-browser       # Don't auto-open browser
+    """
+    try:
+        from llm_web_agent.gui.server import run_server
+    except ImportError as e:
+        console.print("[red]✗ GUI dependencies not installed.[/red]")
+        console.print("Install with: [cyan]pip install 'llm-web-agent[gui]'[/cyan]")
+        console.print(f"\n[dim]Missing: {e}[/dim]")
+        raise typer.Exit(1)
+    
+    setup_logging(debug)
+    
+    console.print(Panel.fit(
+        "[bold blue]🎛️  LLM Web Agent GUI[/bold blue]\n"
+        f"[dim]Starting control panel...[/dim]",
+        border_style="blue",
+    ))
+    
+    try:
+        run_server(
+            host=host,
+            port=port,
+            debug=debug,
+            open_browser=not no_browser,
+        )
+    except KeyboardInterrupt:
+        console.print("\n[dim]Shutting down...[/dim]")
+    except Exception as e:
+        console.print(f"[red]✗ Server error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def version():
     """Show version information."""
     console.print("[bold]LLM Web Agent[/bold] v0.1.0")
