@@ -168,13 +168,59 @@ graph TB
 
 ### Installation
 
+**Prerequisites:** Python 3.10 or higher.
+
+#### 🍎 macOS / 🐧 Linux
+
 ```bash
+# 1. Clone the repository
 git clone https://github.com/suhaibbinyounis/llm-web-agent.git
 cd llm-web-agent
+
+# 2. Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
+
+# 3. Install the package (including GUI dependencies)
 pip install -e ".[all]"
+
+# 4. Install Playwright browsers
 playwright install chromium
+```
+
+#### 🪟 Windows (PowerShell)
+
+```powershell
+# 1. Clone the repository
+git clone https://github.com/suhaibbinyounis/llm-web-agent.git
+cd llm-web-agent
+
+# 2. Create and activate virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# 3. Install the package (including GUI dependencies)
+pip install -e ".[all]"
+
+# 4. Install Playwright browsers
+playwright install chromium
+```
+
+#### 🛠️ Troubleshooting
+
+**"Command not found: llm-web-agent"**
+
+If you see this error, your virtual environment is likely not activated.
+- **Mac/Linux**: Run `source .venv/bin/activate`
+- **Windows**: Run `.venv\Scripts\Activate.ps1`
+
+Alternatively, you can run the module directly without activation:
+```bash
+# Mac/Linux
+./.venv/bin/python -m llm_web_agent.main --help
+
+# Windows
+.\.venv\Scripts\python.exe -m llm_web_agent.main --help
 ```
 
 ### Usage Guide
