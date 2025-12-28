@@ -1180,3 +1180,38 @@ select.form-control {
     color: var(--text-primary);
     box-shadow: 0 1px 0 var(--border-secondary);
 }
+
+/* ============================================
+   Footer
+   ============================================ */
+.footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-primary);
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    z-index: 50;
+}
+
+.footer p {
+    margin: 0;
+    display: inline;
+}
+
+.footer p+p::before {
+    content: " • ";
+}
+
+.footer a {
+    color: var(--accent-primary);
+    text-decoration: none;
+}
+
+.footer a:hover {
+    text-decoration: underline;
+}

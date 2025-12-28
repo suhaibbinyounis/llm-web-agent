@@ -933,6 +933,8 @@ def gui(
 def version():
     """Show version information."""
     console.print("[bold]LLM Web Agent[/bold] v0.1.0")
+    console.print("[dim]Actively maintained and developed by Suhaib Bin Younis[/dim]")
+    console.print("[dim]https://github.com/suhaibbinyounis/llm-web-agent[/dim]")
 
 
 @app.command()
