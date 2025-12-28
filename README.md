@@ -75,7 +75,7 @@ Treats browser automation as a search and optimization problem:
 
 - **LLM-First Planning**: Instead of iterative agents, we use a single "Planner" call that generates a structured JSON execution plan. This decouples reasoning (LLM) from execution (Python), allowing logical checks on the plan before a single browser action is taken.
 - **Pattern Learning System**:
-  - **Mechanism**: The `SelectorPatternTracker` maintains a persistent `sqlite3` or in-memory map of `(domain, semantic_intent) -> successful_selector`.
+  - **Mechanism**: The `SelectorPatternTracker` maintains a persistent **JSON** map of `(domain, semantic_intent) -> successful_selector` (stored in `~/.llm-web-agent/selector_patterns.json`).
   - **Outcome**: If `Sign In` was successfully clicked via `data-testid="login_v2"` on run #1, run #2 bypasses search algorithms and attempts the cached selector immediately (O(1) resolution).
 - **Framework Detection**: The `SiteProfiler` injects heuristics to detect JS frameworks (e.g., scanning for `_reactRootContainer` or `ng-version`). It dynamically re-weights the `AccessibilityResolver` strategies (e.g., favoring `data-test` attributes for React apps vs `aria-label` for standard HTML).
 
