@@ -82,7 +82,7 @@ class MockPage:
     async def title(self) -> str:
         return self._title
     
-    async def goto(self, url: str) -> None:
+    async def goto(self, url: str, **kwargs) -> None:
         self._url = url
     
     async def query_selector(self, selector: str) -> Optional[MockElement]:

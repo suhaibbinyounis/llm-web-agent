@@ -261,8 +261,17 @@ async def execute_task(
             except Exception as e:
                 logger.warning(f"Normalization error: {e}, using original instructions")
             
-            # Create Engine
-            engine = Engine(llm_provider=llm)
+            # Create Engine with settings configuration
+            from llm_web_agent.config import get_settings
+            settings = get_settings()
+            engine = Engine(
+                llm_provider=llm,
+                max_retries=settings.agent.retry_attempts,
+                step_timeout_ms=settings.browser.timeout_ms,
+                navigation_timeout_ms=settings.browser.navigation_timeout_ms,
+                step_delay_ms=settings.agent.step_delay_ms,
+                max_steps=settings.agent.max_steps,
+            )
             state.set_engine(engine)
             
             # Shared context for hover → click

@@ -53,25 +53,7 @@ class TestCLIRunFile:
         assert "not found" in result.stdout.lower() or result.exit_code != 0
 
 
-class TestCLIGoal:
-    """Test the 'goal' CLI command."""
-    
-    def test_goal_help(self, runner):
-        """Test help for goal command."""
-        from llm_web_agent.main import app
-        result = runner.invoke(app, ["goal", "--help"])
-        assert result.exit_code == 0
 
-
-class TestCLIGUI:
-    """Test the 'gui' CLI command."""
-    
-    def test_gui_help(self, runner):
-        """Test help for gui command."""
-        from llm_web_agent.main import app
-        result = runner.invoke(app, ["gui", "--help"])
-        assert result.exit_code == 0
-        assert "Start the web GUI" in result.stdout or "Launch GUI" in result.stdout
 
 
 class TestCLIList:

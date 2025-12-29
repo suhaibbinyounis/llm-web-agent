@@ -198,19 +198,27 @@ class TestRecordReplayMode:
         """Test name property."""
         assert mode.name == "Record & Replay"
     
-    def test_description_mentions_coming_soon(self, mode):
-        """Test description mentions coming soon."""
-        assert "Coming Soon" in mode.description
+    def test_description_mentions_record(self, mode):
+        """Test description mentions recording functionality."""
+        # Now that it's implemented, it should describe the feature
+        assert "Record" in mode.description or "record" in mode.description.lower()
     
     @pytest.mark.asyncio
-    async def test_execute_returns_not_implemented(self, mode):
-        """Test execute returns not implemented error."""
+    async def test_execute_without_start_fails(self, mode):
+        """Test execute fails if not started."""
+        result = await mode.execute({"action": "record"})
+        assert result.success is False
+        assert "not started" in result.error.lower()
+    
+    @pytest.mark.asyncio
+    async def test_execute_unknown_action(self, mode):
+        """Test execute with unknown action."""
         from llm_web_agent.modes.base import ModeConfig, ModeType
         mock_page = MagicMock()
         await mode.start(mock_page, ModeConfig(mode_type=ModeType.RECORD_REPLAY))
-        result = await mode.execute({})
+        result = await mode.execute({"action": "invalid"})
         assert result.success is False
-        assert "coming soon" in result.error.lower()
+        assert "unknown action" in result.error.lower()
 
 
 class TestLocatorHint:

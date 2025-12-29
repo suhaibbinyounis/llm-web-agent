@@ -37,7 +37,12 @@ class NavigateAction(BaseAction):
     
     async def _execute(self, page: "IPage", params: ActionParams) -> ActionResult:
         url = params.value or ""
-        await page.goto(url)
+        # Get timeout from options (navigation_timeout_ms from settings)
+        timeout = params.get("timeout")
+        if timeout:
+            await page.goto(url, timeout=timeout)
+        else:
+            await page.goto(url)
         return ActionResult.success_result(
             action_type=self.action_type,
             data={"url": url},

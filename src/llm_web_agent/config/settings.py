@@ -31,7 +31,8 @@ class BrowserSettings(BaseModel):
     """
     engine: Literal["playwright", "selenium"] = "playwright"
     headless: bool = True
-    timeout_ms: int = Field(default=30000, ge=1000, le=300000)
+    timeout_ms: int = Field(default=30000, ge=1000, le=600000)
+    navigation_timeout_ms: int = Field(default=60000, ge=5000, le=600000)  # For page.goto()
     viewport_width: int = Field(default=1280, ge=320, le=3840)
     viewport_height: int = Field(default=720, ge=240, le=2160)
     user_agent: Optional[str] = None
@@ -101,7 +102,7 @@ class AgentSettings(BaseModel):
         verbose: Enable verbose logging
     """
     max_steps: int = Field(default=20, ge=1, le=100)
-    retry_attempts: int = Field(default=3, ge=0, le=10)
+    retry_attempts: int = Field(default=3, ge=0, le=20)
     step_delay_ms: int = Field(default=500, ge=0, le=10000)
     screenshot_on_error: bool = True
     screenshot_on_step: bool = False

@@ -75,7 +75,7 @@ class MockPage:
     async def title(self) -> str:
         return self._title
     
-    async def goto(self, url: str) -> None:
+    async def goto(self, url: str, **kwargs) -> None:
         self._url = url
         self._actions.append(f"goto:{url}")
     

@@ -16,7 +16,7 @@ class TestSettings:
         assert settings.browser.engine == "playwright"
         assert settings.browser.headless is True
         assert settings.llm.provider == "openai"
-        assert settings.llm.model == "gpt-4o"
+        assert settings.llm.model is None
         assert settings.agent.max_steps == 20
     
     def test_override_settings(self):

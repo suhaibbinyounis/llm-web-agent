@@ -77,6 +77,9 @@ class Engine:
         llm_provider: Optional["ILLMProvider"] = None,
         max_retries: int = 2,
         step_timeout_ms: int = 30000,
+        navigation_timeout_ms: int = 60000,
+        step_delay_ms: int = 0,
+        max_steps: int = 50,
     ):
         """
         Initialize the engine.
@@ -85,10 +88,16 @@ class Engine:
             llm_provider: LLM for complex parsing/resolution
             max_retries: Maximum retries per step
             step_timeout_ms: Timeout for each step
+            navigation_timeout_ms: Timeout for page navigation (page.goto)
+            step_delay_ms: Delay between steps in milliseconds
+            max_steps: Maximum number of steps per task
         """
         self._llm = llm_provider
         self._max_retries = max_retries
         self._step_timeout = step_timeout_ms
+        self._navigation_timeout = navigation_timeout_ms
+        self._step_delay_ms = step_delay_ms
+        self._max_steps = max_steps
         
         # Initialize components
         self._parser = InstructionParser(llm_provider)
@@ -98,6 +107,10 @@ class Engine:
             resolver=self._resolver,
             state_manager=self._state_manager,
             llm_provider=llm_provider,
+            navigation_timeout_ms=navigation_timeout_ms,
+            step_timeout_ms=step_timeout_ms,
+            max_attempts=max_retries + 1,  # max_retries + 1 initial attempt
+            step_delay_ms=step_delay_ms,
         )
     
     async def run(

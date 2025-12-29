@@ -40,13 +40,29 @@ console = Console()
 
 
 def setup_logging(verbose: bool = False):
-    """Configure logging."""
-    level = logging.DEBUG if verbose else logging.INFO
+    """Configure logging using settings."""
+    settings = get_settings()
+    
+    # If verbose CLI flag is set, override to DEBUG
+    if verbose:
+        level = logging.DEBUG
+    else:
+        level = getattr(logging, settings.logging.level, logging.INFO)
+    
+    # Configure handlers
+    handlers = [RichHandler(console=console, rich_tracebacks=True)]
+    
+    # Add file handler if configured
+    if settings.logging.file:
+        file_handler = logging.FileHandler(settings.logging.file)
+        file_handler.setFormatter(logging.Formatter(settings.logging.format))
+        handlers.append(file_handler)
+    
     logging.basicConfig(
         level=level,
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler(console=console, rich_tracebacks=True)],
+        handlers=handlers,
     )
 
 
@@ -173,8 +189,15 @@ async def _run_async(
         # Initialize components
         console.print("\n[dim]Initializing...[/dim]")
         
+        # Load settings early for browser configuration
+        settings = get_settings()
+        
         browser = PlaywrightBrowser()
-        await browser.launch(headless=headless, channel=browser_channel)
+        await browser.launch(
+            headless=headless,
+            channel=browser_channel,
+            slow_mo=settings.browser.slow_mo,
+        )
         
         if use_websocket:
             from llm_web_agent.llm import HybridLLMProvider
@@ -183,16 +206,28 @@ async def _run_async(
             llm = HybridLLMProvider(ws_url=ws_url, http_url=api_url, model=model)
             await llm.connect()
         else:
-            llm = OpenAIProvider(base_url=api_url, model=model)
+            llm = OpenAIProvider(base_url=api_url, model=model, timeout=float(settings.llm.timeout))
         
         # Check LLM health
         if not await llm.health_check():
             console.print(f"[yellow]Warning: LLM API at {api_url} may not be available[/yellow]")
         
-        engine = Engine(llm_provider=llm)
+        engine = Engine(
+            llm_provider=llm,
+            max_retries=settings.agent.retry_attempts,
+            step_timeout_ms=settings.browser.timeout_ms,
+            navigation_timeout_ms=settings.browser.navigation_timeout_ms,
+            step_delay_ms=settings.agent.step_delay_ms,
+            max_steps=settings.agent.max_steps,
+        )
         
-        # Get a page
-        page = await browser.new_page()
+        # Get a page with configured viewport and user agent
+        page_options = {
+            "viewport": {"width": settings.browser.viewport_width, "height": settings.browser.viewport_height},
+        }
+        if settings.browser.user_agent:
+            page_options["user_agent"] = settings.browser.user_agent
+        page = await browser.new_page(**page_options)
         
         # Run with progress indicator
         with Progress(
@@ -402,6 +437,9 @@ async def _run_file_async(
     start_time = time.time()
     
     try:
+        # Load settings early for all configurations
+        settings = get_settings()
+        
         # Initialize LLM first (before browser)
         console.print("[dim]⏳ Connecting to LLM...[/dim]")
         
@@ -425,7 +463,7 @@ async def _run_file_async(
             else:
                 console.print("[yellow]⚠ WebSocket unavailable, using HTTP[/yellow]")
         else:
-            llm = OpenAIProvider(base_url=api_url, model=model)
+            llm = OpenAIProvider(base_url=api_url, model=model, timeout=float(settings.llm.timeout))
         
         if not await llm.health_check():
             console.print(f"[yellow]⚠ LLM API at {api_url} may not be available[/yellow]")
@@ -445,16 +483,33 @@ async def _run_file_async(
         else:
             console.print("[yellow]⚠ Normalization failed, using original instructions (LLM may be called per step)[/yellow]")
         
-        engine = Engine(llm_provider=llm)
+        engine = Engine(
+            llm_provider=llm,
+            max_retries=settings.agent.retry_attempts,
+            step_timeout_ms=settings.browser.timeout_ms,
+            navigation_timeout_ms=settings.browser.navigation_timeout_ms,
+            step_delay_ms=settings.agent.step_delay_ms,
+            max_steps=settings.agent.max_steps,
+        )
         
-        # Now launch browser
+        # Now launch browser with settings
         console.print("[dim]⏳ Launching browser...[/dim]")
         browser = PlaywrightBrowser()
-        await browser.launch(headless=headless, channel=browser_channel)
+        await browser.launch(
+            headless=headless,
+            channel=browser_channel,
+            slow_mo=settings.browser.slow_mo,
+        )
         console.print(f"[green]✓ Browser ready[/green]")
         console.print()
         
-        page = await browser.new_page()
+        # Create page with configured viewport and user agent
+        page_options = {
+            "viewport": {"width": settings.browser.viewport_width, "height": settings.browser.viewport_height},
+        }
+        if settings.browser.user_agent:
+            page_options["user_agent"] = settings.browser.user_agent
+        page = await browser.new_page(**page_options)
         
         # Create a SHARED context that persists across all steps
         # This is critical for hover → click to work (stores _last_hover_selector)
@@ -753,6 +808,9 @@ async def _run_adaptive_async(
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
+        # Load settings early for all configurations
+        settings = get_settings()
+        
         # Initialize LLM
         console.print("[dim]⏳ Initializing LLM provider...[/dim]")
         
@@ -777,7 +835,7 @@ async def _run_adaptive_async(
                 llm_name = "HTTP (WebSocket unavailable)"
                 console.print("[yellow]⚠ WebSocket unavailable, using HTTP[/yellow]")
         elif use_openai:
-            llm = OpenAIProvider(base_url=api_url)
+            llm = OpenAIProvider(base_url=api_url, timeout=float(settings.llm.timeout))
             llm_name = "OpenAI"
         else:
             llm = CopilotProvider(base_url=api_url)
@@ -785,7 +843,7 @@ async def _run_adaptive_async(
                 llm_name = "Copilot Gateway"
             else:
                 console.print("[yellow]Copilot Gateway not available, falling back to OpenAI[/yellow]")
-                llm = OpenAIProvider(base_url=api_url)
+                llm = OpenAIProvider(base_url=api_url, timeout=float(settings.llm.timeout))
                 llm_name = "OpenAI"
         
         console.print(f"[green]✓ {llm_name} connected[/green]")
@@ -796,11 +854,23 @@ async def _run_adaptive_async(
         # Launch browser with Playwright directly
         console.print("[dim]⏳ Launching browser...[/dim]")
         playwright_ctx = await async_playwright().start()
-        browser_obj = await playwright_ctx.chromium.launch(
-            headless=headless,
-            channel=browser_channel,
-        )
-        page = await browser_obj.new_page(viewport={"width": 1280, "height": 800})
+        
+        launch_options = {
+            "headless": headless,
+            "slow_mo": settings.browser.slow_mo,
+        }
+        if browser_channel:
+            launch_options["channel"] = browser_channel
+            
+        browser_obj = await playwright_ctx.chromium.launch(**launch_options)
+        
+        # Create page with configured viewport and user agent
+        page_options = {
+            "viewport": {"width": settings.browser.viewport_width, "height": settings.browser.viewport_height},
+        }
+        if settings.browser.user_agent:
+            page_options["user_agent"] = settings.browser.user_agent
+        page = await browser_obj.new_page(**page_options)
         
         console.print(f"[green]✓ Browser ready[/green]")
         console.print()
@@ -970,7 +1040,8 @@ def health(
 ):
     """Check if LLM API is available."""
     async def check():
-        llm = OpenAIProvider(base_url=api_url)
+        settings = get_settings()
+        llm = OpenAIProvider(base_url=api_url, timeout=float(settings.llm.timeout))
         try:
             if await llm.health_check():
                 console.print(f"[green]✓ LLM API at {api_url} is healthy[/green]")
@@ -982,5 +1053,245 @@ def health(
     asyncio.run(check())
 
 
+@app.command()
+def record(
+    url: Optional[str] = typer.Argument(None, help="Starting URL (optional)"),
+    output: str = typer.Option("recording.py", "--output", "-o", help="Output file path"),
+    name: str = typer.Option("recording", "--name", "-n", help="Recording name"),
+    format: str = typer.Option("python", "--format", "-f", help="Output format: python, json, instructions"),
+    browser_channel: Optional[str] = typer.Option(None, "--browser", "-b", help="Browser channel (chrome, msedge)"),
+):
+    """
+    Record browser actions and generate a Playwright script.
+    
+    Opens a browser window where you can perform actions manually.
+    All actions are recorded and converted to a replayable script.
+    
+    Examples:
+        llm-web-agent record --output login_flow.py
+        llm-web-agent record https://example.com --name login_flow
+        llm-web-agent record --format json --output actions.json
+    """
+    from playwright.async_api import async_playwright
+    from llm_web_agent.recorder import BrowserRecorder, PlaywrightScriptGenerator
+    from llm_web_agent.recorder.script_generator import generate_instruction_file
+    from pathlib import Path
+    import signal
+    
+    # Track state
+    stop_requested = False
+    recorder = None
+    browser = None
+    
+    async def run_recording():
+        nonlocal stop_requested, recorder, browser
+        settings = get_settings()
+        
+        console.print(Panel.fit(
+            "[bold cyan]🎬 Browser Recording Mode[/bold cyan]\n\n"
+            "A browser window will open. Perform your actions, then:\n"
+            "• Press [bold]Ctrl+C[/bold] in terminal to stop recording\n"
+            "• Or close the browser window",
+            title="Recording",
+        ))
+        
+        async with async_playwright() as p:
+            # Launch visible browser
+            browser = await p.chromium.launch(
+                headless=False,
+                slow_mo=settings.browser.slow_mo,
+                channel=browser_channel,
+            )
+            
+            page = await browser.new_page(
+                viewport={"width": settings.browser.viewport_width, "height": settings.browser.viewport_height}
+            )
+            
+            # Navigate to starting URL if provided
+            if url:
+                await page.goto(url)
+                console.print(f"[dim]Navigated to {url}[/dim]")
+            
+            # Start recording
+            recorder = BrowserRecorder()
+            
+            # Show action feedback
+            def on_action(action):
+                # Skip displaying wait/assert actions if they are too frequent or internal
+                val = action.selector or action.url or action.value or ''
+                console.print(f"[dim]  📝 {action.action_type.value}: {val}[/dim]")
+            
+            # Handle stop request from panel
+            def on_stop_request():
+                nonlocal stop_requested
+                stop_requested = True
+                console.print("\n[yellow]Stop requested from control panel...[/yellow]")
+            
+            recorder.on_action(on_action)
+            recorder.on_stop(on_stop_request)
+            await recorder.start(page, name=name, start_url=url)
+            
+            console.print("\n[green]✓ Recording started![/green]")
+            console.print("[dim]Perform actions in the browser...[/dim]\n")
+            
+            # Wait for browser to close
+            while browser.is_connected() and not stop_requested:
+                await asyncio.sleep(0.2)
+            
+            if stop_requested:
+                console.print("\n[yellow]Stopping recording...[/yellow]")
+            
+            # Stop recording and save
+            session = await recorder.stop()
+            
+            if not session or len(session.actions) == 0:
+                console.print("[yellow]No actions recorded.[/yellow]")
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+                return
+            
+            console.print(f"\n[green]✓ Recorded {len(session.actions)} actions[/green]")
+            
+            # Generate output
+            output_path = Path(output)
+            
+            if format == "json":
+                content = session.to_json()
+            elif format == "instructions":
+                content = generate_instruction_file(session)
+            else:  # python
+                generator = PlaywrightScriptGenerator(
+                    async_mode=True,
+                    include_comments=True,
+                    headless=False,
+                )
+                content = generator.generate(session)
+            
+            output_path.write_text(content)
+            console.print(f"[green]✓ Saved to {output_path}[/green]")
+            
+            # Show preview
+            if format == "python":
+                console.print("\n[dim]Preview (first 20 lines):[/dim]")
+                lines = content.split("\n")[:20]
+                for line in lines:
+                    console.print(f"  [dim]{line}[/dim]")
+                if len(content.split("\n")) > 20:
+                    console.print("  [dim]...[/dim]")
+            
+            try:
+                await browser.close()
+            except Exception:
+                pass
+    
+    def signal_handler(sig, frame):
+        nonlocal stop_requested
+        stop_requested = True
+    
+    # Set up signal handler
+    original_handler = signal.signal(signal.SIGINT, signal_handler)
+    
+    try:
+        asyncio.run(run_recording())
+    finally:
+        # Restore original handler
+        signal.signal(signal.SIGINT, original_handler)
+
+
+
+@app.command()
+def replay(
+    script_file: str = typer.Argument(..., help="Path to script file (.py, .json)"),
+    visible: bool = typer.Option(True, "--visible/--headless", help="Show browser window"),
+    browser_channel: Optional[str] = typer.Option(None, "--browser", "-b", help="Browser channel"),
+):
+    """
+    Replay a recorded script.
+    
+    Supports both Playwright Python scripts and JSON recordings.
+    
+    Examples:
+        llm-web-agent replay login_flow.py
+        llm-web-agent replay actions.json --headless
+    """
+    from pathlib import Path
+    import subprocess
+    
+    script_path = Path(script_file)
+    
+    if not script_path.exists():
+        console.print(f"[red]Error: File not found: {script_file}[/red]")
+        raise typer.Exit(1)
+    
+    if script_path.suffix == ".py":
+        # Execute as Python script
+        console.print(f"[cyan]▶ Running {script_file}...[/cyan]")
+        result = subprocess.run([sys.executable, str(script_path)])
+        if result.returncode == 0:
+            console.print("[green]✓ Replay completed successfully[/green]")
+        else:
+            console.print(f"[red]✗ Replay failed with code {result.returncode}[/red]")
+            
+    elif script_path.suffix == ".json":
+        # Load and replay JSON recording
+        from playwright.async_api import async_playwright
+        from llm_web_agent.recorder import RecordingSession
+        
+        async def run_replay():
+            settings = get_settings()
+            
+            with open(script_path) as f:
+                session = RecordingSession.from_json(f.read())
+            
+            console.print(f"[cyan]▶ Replaying: {session.name} ({len(session.actions)} actions)[/cyan]")
+            
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=not visible,
+                    channel=browser_channel,
+                )
+                page = await browser.new_page()
+                
+                from llm_web_agent.recorder.recorder import ActionType
+                
+                for i, action in enumerate(session.actions, 1):
+                    console.print(f"[dim]  Step {i}: {action.action_type.value}[/dim]")
+                    
+                    try:
+                        if action.action_type == ActionType.NAVIGATE and action.url:
+                            await page.goto(action.url)
+                        elif action.action_type == ActionType.CLICK and action.selector:
+                            await page.click(action.selector)
+                        elif action.action_type == ActionType.FILL and action.selector:
+                            await page.fill(action.selector, action.value or "")
+                        elif action.action_type == ActionType.SELECT and action.selector:
+                            await page.select_option(action.selector, action.value or "")
+                        elif action.action_type == ActionType.PRESS and action.key:
+                            await page.keyboard.press(action.key)
+                        elif action.action_type == ActionType.CHECK and action.selector:
+                            await page.check(action.selector)
+                        elif action.action_type == ActionType.UNCHECK and action.selector:
+                            await page.uncheck(action.selector)
+                    except Exception as e:
+                        console.print(f"[yellow]  ⚠ Step {i} failed: {e}[/yellow]")
+                
+                console.print("[green]✓ Replay completed[/green]")
+                
+                if visible:
+                    console.print("[dim]Press Enter to close browser...[/dim]")
+                    input()
+                
+                await browser.close()
+        
+        asyncio.run(run_replay())
+    else:
+        console.print(f"[red]Error: Unknown file format: {script_path.suffix}[/red]")
+        console.print("[dim]Supported formats: .py, .json[/dim]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
+

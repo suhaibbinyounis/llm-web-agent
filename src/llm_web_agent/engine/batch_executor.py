@@ -88,6 +88,10 @@ class BatchExecutor:
         resolver: Optional[TargetResolver] = None,
         state_manager: Optional[StateManager] = None,
         llm_provider: Optional["ILLMProvider"] = None,
+        navigation_timeout_ms: int = 60000,
+        step_timeout_ms: int = 30000,
+        max_attempts: int = 4,
+        step_delay_ms: int = 0,
     ):
         """
         Initialize the executor.
@@ -96,10 +100,18 @@ class BatchExecutor:
             resolver: Target resolver instance
             state_manager: State manager instance
             llm_provider: Optional LLM for complex cases
+            navigation_timeout_ms: Timeout for page navigation (page.goto)
+            step_timeout_ms: Timeout for individual steps
+            max_attempts: Maximum retry attempts per step
+            step_delay_ms: Delay between steps in milliseconds
         """
         self._resolver = resolver or TargetResolver()
         self._state = state_manager or StateManager()
         self._llm = llm_provider
+        self._navigation_timeout_ms = navigation_timeout_ms
+        self._step_timeout_ms = step_timeout_ms
+        self._max_attempts = max_attempts
+        self._step_delay_ms = step_delay_ms
     
     async def execute_batch(
         self,
@@ -147,6 +159,10 @@ class BatchExecutor:
             result = await self._execute_step(page, step, context)
             results.append(result)
             
+            # Apply step delay if configured
+            if self._step_delay_ms > 0:
+                await asyncio.sleep(self._step_delay_ms / 1000)
+            
             # Record in context
             context.record_action(
                 step_id=step.id,
@@ -192,8 +208,8 @@ class BatchExecutor:
         from llm_web_agent.engine.error_recovery import get_error_recovery
         
         recovery = get_error_recovery()
-        max_attempts = 4  # 1 initial + 3 recovery attempts
-        timeout_ms = 5000  # Default timeout
+        max_attempts = self._max_attempts  # Configurable retry attempts
+        timeout_ms = self._step_timeout_ms  # Configurable step timeout
         
         for attempt in range(max_attempts):
             start = time.time()
@@ -429,7 +445,7 @@ class BatchExecutor:
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
         
-        await page.goto(url)
+        await page.goto(url, timeout=self._navigation_timeout_ms)
         await self._state.wait_for_stable(page)
     
     async def _execute_click(

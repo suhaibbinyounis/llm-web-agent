@@ -13,7 +13,7 @@ class TestFullWorkflow:
     @pytest.fixture
     def mock_llm(self):
         """Create a mock LLM provider."""
-        from llm_web_agent.interfaces.llm import Message, MessageRole, LLMResponse
+        from llm_web_agent.interfaces.llm import Message, MessageRole, LLMResponse, Usage
         
         llm = MagicMock()
         llm.name = "mock"
@@ -23,7 +23,8 @@ class TestFullWorkflow:
         llm.supports_streaming = False
         llm.complete = AsyncMock(return_value=LLMResponse(
             content="Click the button",
-            model="mock-model"
+            model="mock-model",
+            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
         ))
         llm.health_check = AsyncMock(return_value=True)
         llm.close = AsyncMock()
@@ -63,7 +64,10 @@ class TestFullWorkflow:
         
         assert result.success is True
         assert result.steps_total >= 1
-        mock_page.goto.assert_called_with("https://google.com")
+        # Check that goto was called with the correct URL (timeout kwarg is now passed)
+        mock_page.goto.assert_called()
+        call_args = mock_page.goto.call_args
+        assert call_args[0][0] == "https://google.com"
     
     @pytest.mark.asyncio
     async def test_engine_workflow_multi_step(self, mock_page, mock_llm):
@@ -134,17 +138,17 @@ class TestSettingsPersistence:
     
     def test_gui_settings_roundtrip(self, tmp_path, monkeypatch):
         """Test saving and loading GUI settings."""
-        from llm_web_agent.gui.config import GUISettings, save_gui_settings, load_gui_settings
+        from llm_web_agent.gui.api.routes.config import GUISettings, save_gui_settings, load_gui_settings
         
         # Mock the settings file location
         settings_file = tmp_path / "gui_settings.json"
-        monkeypatch.setattr("llm_web_agent.gui.config.SETTINGS_FILE", settings_file)
+        monkeypatch.setattr("llm_web_agent.gui.api.routes.config.GUI_SETTINGS_PATH", settings_file)
         
         # Save settings
         original = GUISettings(
             model="gpt-4",
             api_url="http://localhost:8080",
-            timeout=120,
+            step_timeout_ms=120000,
             websocket=True
         )
         save_gui_settings(original)
@@ -154,7 +158,7 @@ class TestSettingsPersistence:
         
         assert loaded.model == "gpt-4"
         assert loaded.api_url == "http://localhost:8080"
-        assert loaded.timeout == 120
+        assert loaded.step_timeout_ms == 120000
 
 
 class TestPolicyWorkflow:

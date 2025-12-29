@@ -8,7 +8,7 @@ These schemas ensure LLM responses are properly structured.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # =============================================================================
@@ -38,8 +38,7 @@ class ParsedStep(BaseModel):
     value: Optional[str] = None
     store_as: Optional[str] = None
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class ParsedInstruction(BaseModel):
@@ -102,8 +101,7 @@ class PlannedAction(BaseModel):
     value: Optional[str] = None
     reason: Optional[str] = None
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class ActionPlan(BaseModel):
@@ -127,8 +125,7 @@ class RecoveryStep(BaseModel):
     target: Optional[str] = None
     value: Optional[str] = None
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class ErrorRecovery(BaseModel):

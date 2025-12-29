@@ -289,6 +289,26 @@ llm-web-agent gui
 - **Persistent Settings** - Saved to `~/.llm-web-agent/gui_settings.json`
 - **Configurable Options** - Connection, Browser, Execution, and Report settings
 
+#### 5. Robust Browser Recorder (New!)
+
+Capture user flows and generate robust, resilient Playwright scripts automatically.
+
+```bash
+# Start recording
+llm-web-agent record https://example.com --output test_flow.py
+```
+
+**Features 2.0:**
+*   **Floating Control Panel**: Visual recording controls injected into the page (Pause, Resume, Undo, Assert).
+*   **Smart Selectors**: Captures ID, TestID, Text, CSS, and XPath for *every* element. Generated scripts automatically retry fallback strategies if the primary selector fails due to UI changes.
+*   **Auto-Parametrization**: Detects input data (e.g., forms) and extracts values into a configurable `INPUT_DATA` dictionary at the top of the script, making data-driven testing instant.
+*   **Visible Assertions**: `assert:text` checks for *visibility*, handling dynamic content and strictly avoiding hidden elements (like mobile menu duplicates).
+
+```bash
+# Replay captured script
+llm-web-agent replay test_flow.py
+```
+
 ### CLI Reference
 
 | Command | Argument | Description |
