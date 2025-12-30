@@ -156,7 +156,7 @@ async def _run_recording_task(recording: dict):
         session = RecordingSession(
             name=recording["name"],
             start_url=recording.get("start_url", ""),
-            started_at=datetime.now(),
+            recorded_at=datetime.now().isoformat(),
             actions=actions,
         )
         
