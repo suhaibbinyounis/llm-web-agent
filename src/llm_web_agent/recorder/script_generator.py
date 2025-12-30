@@ -202,6 +202,7 @@ class PlaywrightScriptGenerator:
         lines.append(f"        browser = await p.{self._browser}.launch(headless={self._headless}, slow_mo=100)")
         lines.append("        context = await browser.new_context()")
         lines.append("        page = await context.new_page()")
+        lines.append("        pages = [page]  # Track all pages for multi-tab support")
         lines.append("")
         lines.append("        # Set generous timeout for slow pages")
         lines.append("        page.set_default_timeout(30000)")
@@ -423,7 +424,28 @@ class PlaywrightScriptGenerator:
         elif action.action_type == ActionType.SCROLL:
             if action.y:
                 lines.append(f'{await_prefix}page.mouse.wheel(0, {action.y})')
-                
+        
+        # Multi-tab actions
+        elif action.action_type == ActionType.NEW_TAB:
+            tab_idx = action.element_info.get("tab_index", 1)
+            url = self._escape_string(action.url or "about:blank")
+            lines.append(f"# New tab opened: {url}")
+            lines.append(f"pages.append({await_prefix}context.wait_for_event('page'))")
+            lines.append(f"page = pages[{tab_idx}]")
+            lines.append(f"{await_prefix}page.wait_for_load_state('domcontentloaded')")
+            
+        elif action.action_type == ActionType.SWITCH_TAB:
+            to_tab = action.element_info.get("to_tab", 0)
+            lines.append(f"# Switch to tab {to_tab}")
+            lines.append(f"page = pages[{to_tab}]")
+            lines.append(f"{await_prefix}page.bring_to_front()")
+            
+        elif action.action_type == ActionType.CLOSE_TAB:
+            tab_idx = action.element_info.get("tab_index", 0)
+            lines.append(f"# Close tab {tab_idx}")
+            lines.append(f"{await_prefix}pages[{tab_idx}].close()")
+            lines.append(f"pages.pop({tab_idx})")
+            lines.append(f"page = pages[min({tab_idx}, len(pages)-1)] if pages else None")
         elif action.action_type == ActionType.WAIT:
             value = action.value or "1000"
             if value.startswith("assert:"):

@@ -32,6 +32,19 @@ class ActionType(str, Enum):
     SCROLL = "scroll"
     HOVER = "hover"
     WAIT = "wait"
+    # Tab actions
+    NEW_TAB = "new_tab"
+    SWITCH_TAB = "switch_tab"
+    CLOSE_TAB = "close_tab"
+    # Advanced mouse
+    RIGHT_CLICK = "right_click"
+    DRAG = "drag"
+    # Assertions
+    ASSERT_TEXT = "assert_text"
+    ASSERT_VALUE = "assert_value"
+    ASSERT_VISIBLE = "assert_visible"
+    ASSERT_HIDDEN = "assert_hidden"
+    SCREENSHOT = "screenshot"
 
 
 
@@ -163,6 +176,10 @@ class BrowserRecorder:
         self._pending_selector: Optional[str] = None
         self._on_action_callbacks: List[Callable[[RecordedAction], None]] = []
         self._on_stop_callback: Optional[Callable[[], None]] = None
+        # Multi-tab tracking
+        self._context = None  # Browser context
+        self._pages: List["Page"] = []  # All tracked pages
+        self._active_page_index: int = 0  # Currently active tab
     
     @property
     def is_recording(self) -> bool:
@@ -220,6 +237,14 @@ class BrowserRecorder:
         self._page = page
         self._start_time = time.time()
         self._last_url = page.url
+        
+        # Track browser context for multi-tab support
+        self._context = page.context
+        self._pages = [page]
+        self._active_page_index = 0
+        
+        # Listen for new tabs/popups
+        self._context.on("page", self._on_new_page)
         
         # Create recording session
         from datetime import datetime
@@ -316,6 +341,101 @@ class BrowserRecorder:
         
         # We'll inject JavaScript to capture user interactions
         asyncio.create_task(self._inject_event_listeners())
+    
+    def _on_new_page(self, new_page: "Page") -> None:
+        """Handle a new tab/popup being opened."""
+        if not self._is_recording:
+            return
+        
+        # Add to tracked pages
+        self._pages.append(new_page)
+        new_tab_index = len(self._pages) - 1
+        
+        # Record new tab action
+        self._record_action(RecordedAction(
+            action_type=ActionType.NEW_TAB,
+            timestamp_ms=self._elapsed_ms(),
+            url=new_page.url or "about:blank",
+            element_info={"tab_index": new_tab_index},
+        ))
+        
+        logger.info(f"New tab opened: {new_page.url}")
+        
+        # Attach recording to new page
+        asyncio.create_task(self._attach_to_page(new_page))
+        
+        # Listen for when this page closes
+        new_page.on("close", lambda: self._on_page_close(new_page))
+    
+    async def _attach_to_page(self, page: "Page") -> None:
+        """Attach recording listeners to a page."""
+        try:
+            # Wait for page to be ready
+            await page.wait_for_load_state("domcontentloaded")
+            
+            # Switch active page to this one
+            if page in self._pages:
+                old_index = self._active_page_index
+                new_index = self._pages.index(page)
+                if new_index != old_index:
+                    self._active_page_index = new_index
+                    self._record_action(RecordedAction(
+                        action_type=ActionType.SWITCH_TAB,
+                        timestamp_ms=self._elapsed_ms(),
+                        element_info={"from_tab": old_index, "to_tab": new_index},
+                    ))
+            
+            # Update current page reference
+            self._page = page
+            self._last_url = page.url
+            
+            # Expose functions if not already
+            try:
+                await page.expose_function("_recordAction", self._handle_js_event)
+            except Exception:
+                pass  # Already exposed
+            
+            try:
+                await page.expose_function("_recorderControl", self._handle_control_event)
+            except Exception:
+                pass
+            
+            # Inject event listeners
+            await self._inject_event_listeners_to_page(page)
+            
+            # Inject control panel
+            if self._show_panel:
+                await self._inject_control_panel_to_page(page)
+            
+            # Track navigation on new page
+            page.on("framenavigated", self._on_navigation)
+            
+        except Exception as e:
+            logger.warning(f"Failed to attach to page: {e}")
+    
+    def _on_page_close(self, page: "Page") -> None:
+        """Handle a page/tab being closed."""
+        if not self._is_recording or page not in self._pages:
+            return
+        
+        tab_index = self._pages.index(page)
+        self._record_action(RecordedAction(
+            action_type=ActionType.CLOSE_TAB,
+            timestamp_ms=self._elapsed_ms(),
+            element_info={"tab_index": tab_index},
+        ))
+        
+        # Remove from tracked pages  
+        self._pages.remove(page)
+        
+        # If closed page was active, switch to another
+        if self._active_page_index >= len(self._pages):
+            self._active_page_index = max(0, len(self._pages) - 1)
+        
+        if self._pages:
+            self._page = self._pages[self._active_page_index]
+        
+        logger.info(f"Tab closed, remaining tabs: {len(self._pages)}")
     
     async def _inject_control_panel(self) -> None:
         """Inject the floating control panel into the page."""
@@ -506,19 +626,23 @@ class BrowserRecorder:
             `;
             document.body.appendChild(panel);
             
-            // Make panel draggable
+            // Make panel draggable - FIXED: use getBoundingClientRect
             let isDragging = false;
             let offsetX, offsetY;
             const header = panel.querySelector('#recorder-panel-header');
             
             header.addEventListener('mousedown', (e) => {
+                e.preventDefault();  // Prevent text selection
                 isDragging = true;
-                offsetX = e.clientX - panel.offsetLeft;
-                offsetY = e.clientY - panel.offsetTop;
+                const rect = panel.getBoundingClientRect();
+                offsetX = e.clientX - rect.left;
+                offsetY = e.clientY - rect.top;
+                panel.style.cursor = 'grabbing';
             });
             
             document.addEventListener('mousemove', (e) => {
                 if (isDragging) {
+                    e.preventDefault();
                     panel.style.left = (e.clientX - offsetX) + 'px';
                     panel.style.right = 'auto';
                     panel.style.top = (e.clientY - offsetY) + 'px';
@@ -528,6 +652,7 @@ class BrowserRecorder:
             
             document.addEventListener('mouseup', () => {
                 isDragging = false;
+                panel.style.cursor = 'move';
             });
             
             // Global functions for UI
@@ -932,6 +1057,191 @@ class BrowserRecorder:
             await inject_js()
         
         self._page.on("load", lambda: asyncio.create_task(on_load_inject()))
+    
+    async def _inject_event_listeners_to_page(self, page: "Page") -> None:
+        """Inject event listeners to a specific page (for multi-tab support)."""
+        # Reuse the same JS code from _inject_event_listeners
+        js_code = self._get_event_listener_js()
+        
+        async def inject_js():
+            if self._is_recording:
+                try:
+                    await page.evaluate(js_code)
+                except Exception as e:
+                    logger.debug(f"JS injection to page error: {e}")
+        
+        await inject_js()
+        
+        async def on_load_inject():
+            await asyncio.sleep(0.1)
+            await inject_js()
+        
+        page.on("load", lambda: asyncio.create_task(on_load_inject()))
+    
+    async def _inject_control_panel_to_page(self, page: "Page") -> None:
+        """Inject control panel to a specific page (for multi-tab support)."""
+        panel_js = self._get_control_panel_js()
+        try:
+            await page.evaluate(panel_js)
+        except Exception as e:
+            logger.debug(f"Control panel injection error: {e}")
+    
+    def _get_event_listener_js(self) -> str:
+        """Return the JavaScript code for event listeners."""
+        return r"""
+        (function() {
+            if (window._recorderCleanup) {
+                window._recorderCleanup();
+            }
+            
+            function getSelectors(el) {
+                if (!el || el === document.body) return ['body'];
+                const strategies = [];
+                if (el.id) strategies.push('#' + CSS.escape(el.id));
+                if (el.dataset.testid) strategies.push(`[data-testid="${el.dataset.testid}"]`);
+                if (el.getAttribute('data-qa')) strategies.push(`[data-qa="${el.getAttribute('data-qa')}"]`);
+                if (el.name) strategies.push(`[name="${el.name}"]`);
+                if (el.getAttribute('aria-label')) strategies.push(`[aria-label="${el.getAttribute('aria-label')}"]`);
+                if (el.placeholder) strategies.push(`[placeholder="${el.placeholder}"]`);
+                
+                const text = (el.textContent || '').trim();
+                if (text && text.length < 20 && ['A', 'BUTTON', 'LABEL', 'SPAN', 'DIV'].includes(el.tagName)) {
+                   strategies.push(`text=${text}`);
+                }
+                
+                let path = [];
+                let current = el;
+                while (current && current !== document.body && current.tagName) {
+                    let selector = current.tagName.toLowerCase();
+                    if (current.id) {
+                        path.unshift('#' + CSS.escape(current.id));
+                        break; 
+                    }
+                    if (current.className && typeof current.className === 'string') {
+                        const classes = current.className.trim().split(/\s+/).filter(c => c && !c.includes(':'));
+                        if (classes.length > 0) selector += '.' + classes[0];
+                    }
+                    if (current.parentElement) {
+                        const siblings = Array.from(current.parentElement.children).filter(c => c.tagName === current.tagName);
+                        if (siblings.length > 1) {
+                            const index = siblings.indexOf(current) + 1;
+                            selector += `:nth-child(${index})`;
+                        }
+                    }
+                    path.unshift(selector);
+                    current = current.parentElement;
+                }
+                strategies.push(path.slice(-3).join(' > '));
+                return [...new Set(strategies)].filter(s => s && s.length > 0);
+            }
+            
+            function getElementInfo(el) {
+                return {
+                    tag: el.tagName ? el.tagName.toLowerCase() : 'unknown',
+                    id: el.id || null,
+                    text: (el.textContent || '').trim().substring(0, 100),
+                    type: el.type || null,
+                    name: el.name || null,
+                    placeholder: el.placeholder || null,
+                };
+            }
+            
+            function sendAction(data) {
+                try {
+                    if (window._recordAction) window._recordAction(JSON.stringify(data));
+                } catch (e) {}
+            }
+            
+            function handleClick(e) {
+                if (e.target.closest('#recorder-panel')) return;
+                const selectors = getSelectors(e.target);
+                sendAction({
+                    type: 'click',
+                    selector: selectors[0],
+                    selectors: selectors,
+                    x: e.clientX,
+                    y: e.clientY,
+                    element_info: getElementInfo(e.target)
+                });
+            }
+            
+            function handleInput(e) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                    const selectors = getSelectors(e.target);
+                    sendAction({
+                        type: 'input',
+                        selector: selectors[0],
+                        selectors: selectors,
+                        value: e.target.value,
+                        element_info: getElementInfo(e.target)
+                    });
+                }
+            }
+            
+            function handleChange(e) {
+                if (e.target.tagName === 'SELECT') {
+                    const selectors = getSelectors(e.target);
+                    sendAction({ type: 'select', selector: selectors[0], selectors: selectors, value: e.target.value });
+                } else if (e.target.type === 'checkbox') {
+                    const selectors = getSelectors(e.target);
+                    sendAction({ type: e.target.checked ? 'check' : 'uncheck', selector: selectors[0], selectors: selectors });
+                }
+            }
+            
+            function handleKeydown(e) {
+                if (['Enter', 'Tab', 'Escape', 'Backspace', 'Delete'].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) {
+                    const selectors = getSelectors(e.target);
+                    let key = e.key;
+                    if (e.ctrlKey) key = 'Control+' + key;
+                    if (e.metaKey) key = 'Meta+' + key;
+                    if (e.altKey) key = 'Alt+' + key;
+                    if (e.shiftKey) key = 'Shift+' + key;
+                    sendAction({ type: 'press', selector: selectors[0], selectors: selectors, key: key });
+                }
+            }
+            
+            let scrollTimeout = null;
+            let scrollStartY = window.scrollY;
+            function handleScroll(e) {
+                if (scrollTimeout) clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    const scrollDelta = window.scrollY - scrollStartY;
+                    if (Math.abs(scrollDelta) > 100) {
+                        sendAction({ type: 'scroll', y: scrollDelta });
+                        scrollStartY = window.scrollY;
+                    }
+                }, 300);
+            }
+            
+            document.addEventListener('click', handleClick, true);
+            document.addEventListener('input', handleInput, true);
+            document.addEventListener('change', handleChange, true);
+            document.addEventListener('keydown', handleKeydown, true);
+            window.addEventListener('scroll', handleScroll, true);
+            
+            window._recorderCleanup = function() {
+                document.removeEventListener('click', handleClick, true);
+                document.removeEventListener('input', handleInput, true);
+                document.removeEventListener('change', handleChange, true);
+                document.removeEventListener('keydown', handleKeydown, true);
+                window.removeEventListener('scroll', handleScroll, true);
+                if (scrollTimeout) clearTimeout(scrollTimeout);
+            };
+            
+            console.log('[Recorder] Event listeners installed');
+        })();
+        """
+    
+    def _get_control_panel_js(self) -> str:
+        """Return the JavaScript code for control panel (simplified for new tabs)."""
+        # This returns a minimal version - full panel is only on main page
+        return """
+        (function() {
+            if (document.getElementById('recorder-panel')) return;
+            // Just log for now - full panel on main page only
+            console.log('[Recorder] Recording active on this tab');
+        })();
+        """
     
     def _handle_js_event(self, event_json: str) -> None:
         """Handle an event from JavaScript."""
