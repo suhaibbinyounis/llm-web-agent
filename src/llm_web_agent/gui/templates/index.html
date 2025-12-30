@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM Web Agent</title>
-    <meta name="description" content="Control and monitor the LLM Web Agent browser automation framework">
+    <meta name="description" content="AI-Powered Browser Automation - Record, Replay, or Use Natural Language">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,269 +15,404 @@
 </head>
 
 <body>
-    <!-- Header -->
-    <header class="header">
-        <div class="header-left">
-            <div class="logo">
-                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 6v6l4 2" />
-                </svg>
-                <span class="logo-text">LLM Web Agent</span>
+    <!-- ===================== LANDING VIEW ===================== -->
+    <div id="landingView" class="view active">
+        <div class="landing-container">
+            <header class="landing-header">
+                <div class="logo-large">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 6v6l4 2" />
+                    </svg>
+                    <h1>LLM Web Agent</h1>
+                </div>
+                <p class="landing-subtitle">AI-Powered Browser Automation</p>
+            </header>
+
+            <div class="mode-cards">
+                <!-- Guided Mode -->
+                <div class="mode-card" data-mode="guided">
+                    <div class="mode-card-icon">🎯</div>
+                    <h2>Guided Automation</h2>
+                    <p class="mode-card-desc">Record your actions and replay them anytime. Perfect for repetitive workflows.</p>
+                    <ul class="mode-card-features">
+                        <li>✓ Record browser actions</li>
+                        <li>✓ Save & manage recordings</li>
+                        <li>✓ Replay with one click</li>
+                    </ul>
+                    <div class="mode-card-badge badge-success">No API Required</div>
+                </div>
+
+                <!-- Natural Language Mode -->
+                <div class="mode-card" data-mode="instructions">
+                    <div class="mode-card-icon">💬</div>
+                    <h2>Natural Language</h2>
+                    <p class="mode-card-desc">Describe tasks in plain English. AI interprets and executes your instructions.</p>
+                    <ul class="mode-card-features">
+                        <li>✓ Step-by-step instructions</li>
+                        <li>✓ Smart element finding</li>
+                        <li>✓ Error handling</li>
+                    </ul>
+                    <div class="mode-card-badge badge-warning">Requires LLM API</div>
+                </div>
+
+                <!-- Goal Mode -->
+                <div class="mode-card" data-mode="goal">
+                    <div class="mode-card-icon">🚀</div>
+                    <h2>Goal Mode</h2>
+                    <p class="mode-card-desc">Set a high-level goal. AI autonomously plans and executes the steps.</p>
+                    <ul class="mode-card-features">
+                        <li>✓ Autonomous planning</li>
+                        <li>✓ Dynamic adaptation</li>
+                        <li>✓ Goal-oriented execution</li>
+                    </ul>
+                    <div class="mode-card-badge badge-warning">Requires LLM API</div>
+                </div>
             </div>
+
+            <footer class="landing-footer">
+                <p>Built by <a href="https://github.com/suhaibbinyounis" target="_blank">Suhaib Bin Younis</a></p>
+            </footer>
         </div>
-        <div class="header-right">
-            <span class="settings-saved-badge" id="settingsSavedBadge" style="display: none;">✓ Saved</span>
-            <button class="btn btn-ghost" id="settingsBtn" title="Settings">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="3" />
-                    <path
-                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-            </button>
-            <button class="btn btn-ghost" id="helpBtn" title="Help">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-            </button>
-        </div>
-    </header>
+    </div>
 
-    <!-- Main Content -->
-    <main class="main">
-        <!-- Left Sidebar -->
-        <aside class="sidebar">
-            <!-- Status Card -->
-            <div class="card status-card">
-                <div class="card-header">
-                    <h3>Status</h3>
-                    <span class="status-badge" id="statusBadge">
-                        <span class="status-dot"></span>
-                        <span class="status-text">Idle</span>
-                    </span>
-                </div>
-                <div class="card-body">
-                    <div class="status-info">
-                        <div class="info-row">
-                            <span class="info-label">Run ID</span>
-                            <span class="info-value" id="runId">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Progress</span>
-                            <span class="info-value" id="progress">0 / 0</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Duration</span>
-                            <span class="info-value" id="duration">0s</span>
-                        </div>
-                    </div>
-                    <!-- Progress Bar -->
-                    <div class="progress-bar-container" id="progressBarContainer" style="display: none;">
-                        <div class="progress-bar" id="progressBar"></div>
-                    </div>
+    <!-- ===================== GUIDED VIEW ===================== -->
+    <div id="guidedView" class="view">
+        <header class="header">
+            <div class="header-left">
+                <button class="btn btn-ghost" id="backToLanding" title="Back">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <div class="logo">
+                    <span class="logo-text">🎯 Guided Automation</span>
                 </div>
             </div>
+            <div class="header-right">
+                <button class="btn btn-primary" id="newRecordingBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                    </svg>
+                    New Recording
+                </button>
+            </div>
+        </header>
 
-            <!-- Control Panel -->
-            <div class="card control-card">
+        <main class="guided-main">
+            <div class="card recordings-card">
                 <div class="card-header">
-                    <h3>Controls</h3>
+                    <h3>Saved Recordings</h3>
+                    <span class="recordings-count" id="recordingsCount">0 recordings</span>
                 </div>
                 <div class="card-body">
-                    <div class="control-buttons">
-                        <button class="btn btn-primary btn-lg" id="startBtn">
-                            <svg viewBox="0 0 24 24" fill="currentColor">
-                                <polygon points="5 3 19 12 5 21 5 3" />
-                            </svg>
-                            Start
-                        </button>
-                        <div class="btn-group">
-                            <button class="btn btn-secondary" id="pauseBtn" disabled>
-                                <svg viewBox="0 0 24 24" fill="currentColor">
-                                    <rect x="6" y="4" width="4" height="16" />
-                                    <rect x="14" y="4" width="4" height="16" />
-                                </svg>
-                                Pause
-                            </button>
-                            <button class="btn btn-danger" id="stopBtn" disabled>
-                                <svg viewBox="0 0 24 24" fill="currentColor">
-                                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                                </svg>
-                                Stop
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Task Input with Mode Toggle -->
-            <div class="card task-card">
-                <div class="card-header">
-                    <h3>Task</h3>
-                </div>
-                <div class="card-body">
-                    <!-- Mode Toggle -->
-                    <div class="mode-toggle" id="modeToggle">
-                        <button class="mode-btn active" data-mode="instructions" id="instructionsModeBtn">
-                            📋 Instructions
-                        </button>
-                        <button class="mode-btn" data-mode="goal" id="goalModeBtn">
-                            🎯 Goal
-                        </button>
-                    </div>
-
-                    <!-- Mode Info -->
-                    <div class="mode-info" id="modeInfo">
-                        <div class="mode-info-instructions" id="instructionsModeInfo">
-                            <small>📋 <strong>Instructions Mode:</strong> Enter step-by-step instructions (one per
-                                line).
-                                Uses instruction normalization for efficient execution.</small>
-                        </div>
-                        <div class="mode-info-goal" id="goalModeInfo" style="display: none;">
-                            <small>🎯 <strong>Goal Mode:</strong> Enter a high-level goal.
-                                AI will dynamically plan and execute the steps.</small>
-                        </div>
-                    </div>
-
-                    <!-- Instructions Mode Input -->
-                    <div class="form-group" id="instructionsInputGroup">
-                        <label for="taskInput">Instructions (one per line)</label>
-                        <textarea id="taskInput" class="form-control"
-                            placeholder="Navigate to https://example.com&#10;Click login button&#10;Enter username admin&#10;Enter password secret&#10;Click submit"
-                            rows="6"></textarea>
-                        <div class="instruction-count">
-                            <span id="instructionCount">0</span> instructions
-                        </div>
-                    </div>
-
-                    <!-- Goal Mode Input -->
-                    <div class="form-group" id="goalInputGroup" style="display: none;">
-                        <label for="goalInput">Goal</label>
-                        <input type="text" id="goalInput" class="form-control"
-                            placeholder="Login to saucedemo.com and add a backpack to cart">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="startUrl">Starting URL (optional)</label>
-                        <input type="url" id="startUrl" class="form-control" placeholder="https://example.com">
-                    </div>
-
-                    <div class="form-row">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="visibleBrowser" checked>
-                            <span>Show Browser</span>
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="useWebsocket" checked>
-                            <span>WebSocket</span>
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="generateReport" checked>
-                            <span>Report</span>
-                        </label>
-                    </div>
-
-                    <div class="divider"></div>
-
-                    <div class="form-group">
-                        <label>Or load from file</label>
-                        <select id="instructionFile" class="form-control">
-                            <option value="">Select instruction file...</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Or browse local file</label>
-                        <input type="file" id="localFileInput" class="form-control" accept=".txt,.md"
-                            style="padding: 8px;">
-                        <small class="form-hint">Accepts .txt or .md files with one instruction per line</small>
-                    </div>
-                </div>
-            </div>
-        </aside>
-
-        <!-- Main Content Area -->
-        <div class="content">
-            <!-- Browser Preview -->
-            <div class="card preview-card">
-                <div class="card-header">
-                    <h3>Browser Preview</h3>
-                    <button class="btn btn-ghost btn-sm" id="refreshScreenshot" title="Refresh">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="23 4 23 10 17 10" />
-                            <polyline points="1 20 1 14 7 14" />
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    <!-- Empty state -->
+                    <div class="empty-state" id="emptyState">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M12 8v1M12 15v1M8 12h1M15 12h1"/>
                         </svg>
-                    </button>
-                </div>
-                <div class="card-body preview-body">
-                    <div class="browser-frame" id="browserFrame">
-                        <div class="browser-placeholder">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <rect x="3" y="3" width="18" height="18" rx="2" />
-                                <line x1="3" y1="9" x2="21" y2="9" />
-                                <circle cx="7" cy="6" r="1" />
-                                <circle cx="11" cy="6" r="1" />
-                            </svg>
-                            <p>Browser preview will appear here when a task is running</p>
-                        </div>
-                        <img id="screenshotImg" class="screenshot-img" alt="Browser screenshot" style="display: none;">
+                        <p>No recordings yet</p>
+                        <span>Click "New Recording" to get started</span>
                     </div>
+
+                    <!-- Recordings table -->
+                    <table class="recordings-table" id="recordingsTable" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>URL</th>
+                                <th>Actions</th>
+                                <th>Created</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="recordingsTableBody">
+                            <!-- Rows inserted by JS -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
+        </main>
+    </div>
 
-            <!-- Execution Logs - Enhanced -->
-            <div class="card logs-card">
-                <div class="card-header">
-                    <h3>Execution Log</h3>
-                    <div class="header-actions">
-                        <select class="log-filter" id="logFilter">
-                            <option value="all">All</option>
-                            <option value="step">Steps Only</option>
-                            <option value="error">Errors Only</option>
-                        </select>
-                        <button class="btn btn-ghost btn-sm" id="clearLogs" title="Clear logs">
+    <!-- ===================== EXECUTION VIEW ===================== -->
+    <div id="executionView" class="view">
+        <header class="header">
+            <div class="header-left">
+                <button class="btn btn-ghost" id="backFromExecution" title="Back">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 6v6l4 2" />
+                    </svg>
+                    <span class="logo-text">LLM Web Agent</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <span class="settings-saved-badge" id="settingsSavedBadge" style="display: none;">✓ Saved</span>
+                <button class="btn btn-ghost" id="settingsBtn" title="Settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                </button>
+                <button class="btn btn-ghost" id="helpBtn" title="Help">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="main">
+            <!-- Left Sidebar -->
+            <aside class="sidebar">
+                <!-- Status Card -->
+                <div class="card status-card">
+                    <div class="card-header">
+                        <h3>Status</h3>
+                        <span class="status-badge" id="statusBadge">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Idle</span>
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="status-info">
+                            <div class="info-row">
+                                <span class="info-label">Run ID</span>
+                                <span class="info-value" id="runId">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Progress</span>
+                                <span class="info-value" id="progress">0 / 0</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Duration</span>
+                                <span class="info-value" id="duration">0s</span>
+                            </div>
+                        </div>
+                        <div class="progress-bar-container" id="progressBarContainer" style="display: none;">
+                            <div class="progress-bar" id="progressBar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Control Panel -->
+                <div class="card control-card">
+                    <div class="card-header">
+                        <h3>Controls</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="control-buttons">
+                            <button class="btn btn-primary btn-lg" id="startBtn">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <polygon points="5 3 19 12 5 21 5 3" />
+                                </svg>
+                                Start
+                            </button>
+                            <div class="btn-group">
+                                <button class="btn btn-secondary" id="pauseBtn" disabled>
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="6" y="4" width="4" height="16" />
+                                        <rect x="14" y="4" width="4" height="16" />
+                                    </svg>
+                                    Pause
+                                </button>
+                                <button class="btn btn-danger" id="stopBtn" disabled>
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                                    </svg>
+                                    Stop
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Task Input -->
+                <div class="card task-card">
+                    <div class="card-header">
+                        <h3>Task</h3>
+                    </div>
+                    <div class="card-body">
+                        <!-- Mode Toggle -->
+                        <div class="mode-toggle" id="modeToggle">
+                            <button class="mode-btn active" data-mode="instructions" id="instructionsModeBtn">
+                                📋 Instructions
+                            </button>
+                            <button class="mode-btn" data-mode="goal" id="goalModeBtn">
+                                🎯 Goal
+                            </button>
+                        </div>
+
+                        <!-- Mode Info -->
+                        <div class="mode-info" id="modeInfo">
+                            <div class="mode-info-instructions" id="instructionsModeInfo">
+                                <small>📋 <strong>Instructions Mode:</strong> Enter step-by-step instructions.</small>
+                            </div>
+                            <div class="mode-info-goal" id="goalModeInfo" style="display: none;">
+                                <small>🎯 <strong>Goal Mode:</strong> Enter a high-level goal.</small>
+                            </div>
+                        </div>
+
+                        <!-- Instructions Input -->
+                        <div class="form-group" id="instructionsInputGroup">
+                            <label for="taskInput">Instructions (one per line)</label>
+                            <textarea id="taskInput" class="form-control"
+                                placeholder="Navigate to https://example.com&#10;Click login button&#10;Enter username admin"
+                                rows="5"></textarea>
+                            <div class="instruction-count">
+                                <span id="instructionCount">0</span> instructions
+                            </div>
+                        </div>
+
+                        <!-- Goal Input -->
+                        <div class="form-group" id="goalInputGroup" style="display: none;">
+                            <label for="goalInput">Goal</label>
+                            <input type="text" id="goalInput" class="form-control"
+                                placeholder="Login to saucedemo.com and add a backpack to cart">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="startUrl">Starting URL (optional)</label>
+                            <input type="url" id="startUrl" class="form-control" placeholder="https://example.com">
+                        </div>
+
+                        <div class="form-row">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="visibleBrowser" checked>
+                                <span>Show Browser</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useWebsocket" checked>
+                                <span>WebSocket</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <div class="content">
+                <!-- Browser Preview -->
+                <div class="card preview-card">
+                    <div class="card-header">
+                        <h3>Browser Preview</h3>
+                        <button class="btn btn-ghost btn-sm" id="refreshScreenshot" title="Refresh">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="3 6 5 6 21 6" />
-                                <path
-                                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                <polyline points="23 4 23 10 17 10" />
+                                <polyline points="1 20 1 14 7 14" />
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                             </svg>
                         </button>
                     </div>
-                </div>
-                <div class="card-body logs-body">
-                    <!-- Step Table -->
-                    <div class="steps-table-container" id="stepsTableContainer">
-                        <table class="steps-table" id="stepsTable">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Action</th>
-                                    <th>Target</th>
-                                    <th>Status</th>
-                                    <th>Time</th>
-                                </tr>
-                            </thead>
-                            <tbody id="stepsTableBody">
-                                <!-- Steps will be inserted here -->
-                            </tbody>
-                        </table>
+                    <div class="card-body preview-body">
+                        <div class="browser-frame" id="browserFrame">
+                            <div class="browser-placeholder">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                                    <line x1="3" y1="9" x2="21" y2="9" />
+                                    <circle cx="7" cy="6" r="1" />
+                                    <circle cx="11" cy="6" r="1" />
+                                </svg>
+                                <p>Browser preview will appear here</p>
+                            </div>
+                            <img id="screenshotImg" class="screenshot-img" alt="Browser screenshot" style="display: none;">
+                        </div>
                     </div>
-                    <!-- Log Messages -->
-                    <div class="logs-container" id="logsContainer">
-                        <div class="log-entry log-info">
-                            <span class="log-time">--:--:--</span>
-                            <span class="log-icon">ℹ️</span>
-                            <span class="log-message">Ready to start. Enter a task above and click Start.</span>
+                </div>
+
+                <!-- Execution Logs -->
+                <div class="card logs-card">
+                    <div class="card-header">
+                        <h3>Execution Log</h3>
+                        <div class="header-actions">
+                            <select class="log-filter" id="logFilter">
+                                <option value="all">All</option>
+                                <option value="step">Steps Only</option>
+                                <option value="error">Errors Only</option>
+                            </select>
+                            <button class="btn btn-ghost btn-sm" id="clearLogs" title="Clear logs">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body logs-body">
+                        <div class="steps-table-container" id="stepsTableContainer">
+                            <table class="steps-table" id="stepsTable">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Action</th>
+                                        <th>Target</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stepsTableBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="logs-container" id="logsContainer">
+                            <div class="log-entry log-info">
+                                <span class="log-time">--:--:--</span>
+                                <span class="log-icon">ℹ️</span>
+                                <span class="log-message">Ready. Enter a task and click Start.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-    </main>
+        </main>
+    </div>
 
-    <!-- Settings Modal - Enhanced -->
+    <!-- ===================== MODALS ===================== -->
+    
+    <!-- New Recording Modal -->
+    <div class="modal-overlay" id="newRecordingModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>New Recording</h2>
+                <button class="btn btn-ghost" id="closeNewRecording">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="recordingName">Recording Name</label>
+                    <input type="text" id="recordingName" class="form-control" placeholder="My Workflow">
+                </div>
+                <div class="form-group">
+                    <label for="recordingUrl">Starting URL</label>
+                    <input type="url" id="recordingUrl" class="form-control" placeholder="https://example.com">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelNewRecording">Cancel</button>
+                <button class="btn btn-primary" id="startRecording">
+                    <svg viewBox="0 0 24 24" fill="currentColor" style="width: 16px; height: 16px;">
+                        <circle cx="12" cy="12" r="6"/>
+                    </svg>
+                    Start Recording
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal modal-large">
             <div class="modal-header">
@@ -305,12 +440,6 @@
                             <option value="gpt-4-turbo">GPT-4 Turbo</option>
                             <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
                         </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="settingsWebsocket" checked>
-                            <span>Use WebSocket (low latency)</span>
-                        </label>
                     </div>
                 </div>
 
@@ -344,42 +473,6 @@
                         <label for="timeout">Step Timeout (ms)</label>
                         <input type="number" id="timeout" class="form-control" value="30000" min="5000" max="120000">
                     </div>
-                    <div class="form-group">
-                        <label for="retryAttempts">Retry Attempts</label>
-                        <input type="number" id="retryAttempts" class="form-control" value="3" min="0" max="10">
-                    </div>
-                </div>
-
-                <!-- Reports Section -->
-                <div class="settings-section">
-                    <h3>📁 Reports</h3>
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="settingsReport" checked>
-                            <span>Generate execution reports</span>
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label for="reportDir">Report Directory</label>
-                        <input type="text" id="reportDir" class="form-control" value="./reports">
-                    </div>
-                    <div class="form-group">
-                        <label>Report Formats</label>
-                        <div class="checkbox-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="reportJson" checked>
-                                <span>JSON</span>
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="reportMd" checked>
-                                <span>Markdown</span>
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="reportHtml" checked>
-                                <span>HTML</span>
-                            </label>
-                        </div>
-                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -403,37 +496,20 @@
                 </button>
             </div>
             <div class="modal-body help-content">
-                <h3>📋 Instructions Mode</h3>
-                <p>Enter step-by-step instructions, one per line. Best for known, repeatable workflows.</p>
-                <pre>Navigate to https://example.com
-Click login button
-Enter username admin
-Enter password secret
-Click submit</pre>
-
-                <h3>🎯 Goal Mode</h3>
-                <p>Enter a high-level goal and the AI will figure out the steps. Best for exploratory tasks.</p>
-                <pre>Login to saucedemo.com as standard_user and add a backpack to cart</pre>
-
-                <h3>⌨️ Keyboard Shortcuts</h3>
-                <ul>
-                    <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> - Start task</li>
-                    <li><kbd>Escape</kbd> - Stop task</li>
-                    <li><kbd>Ctrl</kbd> + <kbd>,</kbd> - Open settings</li>
-                </ul>
+                <h3>🎯 Guided Automation</h3>
+                <p>Record your browser actions and replay them later. No LLM API needed.</p>
+                
+                <h3>📋 Natural Language</h3>
+                <p>Enter step-by-step instructions in plain English. Requires LLM API access.</p>
+                
+                <h3>🚀 Goal Mode</h3>
+                <p>Set a high-level goal and let AI plan the steps. Requires LLM API access.</p>
             </div>
         </div>
     </div>
 
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <p>Actively maintained and developed by <a href="https://github.com/suhaibbinyounis" target="_blank">Suhaib Bin
-                Younis</a></p>
-        <p><a href="https://github.com/suhaibbinyounis/llm-web-agent" target="_blank">GitHub</a></p>
-    </footer>
 
     <script src="/static/app.js"></script>
 </body>

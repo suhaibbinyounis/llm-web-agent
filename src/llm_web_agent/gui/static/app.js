@@ -2,6 +2,8 @@
  * LLM Web Agent - GUI Application
  * 
  * Client-side JavaScript for:
+ * - View navigation (Landing, Guided, Execution)
+ * - Recordings management
  * - SSE connection for real-time updates
  * - Control panel handlers
  * - Settings persistence
@@ -24,7 +26,194 @@ const AppState = {
     engineMode: 'instructions',  // 'instructions' or 'goal'
     settings: null,
     steps: [],
+    currentView: 'landing',  // 'landing', 'guided', 'execution'
+    recordings: [],
 };
+
+// ============================================
+// View Navigation
+// ============================================
+function showView(viewName) {
+    AppState.currentView = viewName;
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const view = document.getElementById(`${viewName}View`);
+    if (view) view.classList.add('active');
+
+    // Load data when switching to guided view
+    if (viewName === 'guided') {
+        loadRecordings();
+    }
+}
+
+// ============================================
+// Recordings Manager
+// ============================================
+async function loadRecordings() {
+    try {
+        const response = await fetch('/api/recordings');
+        if (!response.ok) {
+            AppState.recordings = [];
+        } else {
+            const data = await response.json();
+            AppState.recordings = data.recordings || [];
+        }
+        renderRecordings();
+    } catch (e) {
+        console.error('Failed to load recordings:', e);
+        AppState.recordings = [];
+        renderRecordings();
+    }
+}
+
+function renderRecordings() {
+    const emptyState = document.getElementById('emptyState');
+    const table = document.getElementById('recordingsTable');
+    const tbody = document.getElementById('recordingsTableBody');
+    const count = document.getElementById('recordingsCount');
+
+    if (!tbody) return;
+
+    count.textContent = `${AppState.recordings.length} recording${AppState.recordings.length !== 1 ? 's' : ''}`;
+
+    if (AppState.recordings.length === 0) {
+        emptyState.style.display = 'flex';
+        table.style.display = 'none';
+        return;
+    }
+
+    emptyState.style.display = 'none';
+    table.style.display = 'table';
+
+    tbody.innerHTML = AppState.recordings.map(rec => `
+        <tr data-id="${rec.id}">
+            <td class="recording-name">${escapeHtml(rec.name)}</td>
+            <td class="recording-url" title="${escapeHtml(rec.start_url)}">${escapeHtml(rec.start_url || '-')}</td>
+            <td>${rec.actions?.length || 0}</td>
+            <td class="recording-date">${formatDate(rec.created_at)}</td>
+            <td>
+                <div class="recording-actions">
+                    <button class="btn btn-success btn-sm" onclick="runRecording('${rec.id}')" title="Run">▶</button>
+                    <button class="btn btn-secondary btn-sm" onclick="editRecording('${rec.id}')" title="Edit">✎</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteRecording('${rec.id}')" title="Delete">✕</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatDate(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function runRecording(id) {
+    const rec = AppState.recordings.find(r => r.id === id);
+    if (!rec) return;
+
+    showToast(`Running "${rec.name}"...`, 'info');
+
+    try {
+        const response = await fetch(`/api/recordings/${id}/run`, { method: 'POST' });
+        if (response.ok) {
+            showToast('Recording started!', 'success');
+        } else {
+            const err = await response.json();
+            showToast(`Failed: ${err.detail || 'Unknown error'}`, 'error');
+        }
+    } catch (e) {
+        showToast('Failed to run recording', 'error');
+    }
+}
+
+async function deleteRecording(id) {
+    const rec = AppState.recordings.find(r => r.id === id);
+    if (!rec) return;
+
+    if (!confirm(`Delete "${rec.name}"?`)) return;
+
+    try {
+        const response = await fetch(`/api/recordings/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            showToast('Recording deleted', 'success');
+            loadRecordings();
+        } else {
+            showToast('Failed to delete recording', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to delete recording', 'error');
+    }
+}
+
+function editRecording(id) {
+    const rec = AppState.recordings.find(r => r.id === id);
+    if (!rec) return;
+
+    const newName = prompt('Rename recording:', rec.name);
+    if (!newName || newName === rec.name) return;
+
+    fetch(`/api/recordings/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+    }).then(resp => {
+        if (resp.ok) {
+            showToast('Recording renamed', 'success');
+            loadRecordings();
+        } else {
+            showToast('Failed to rename', 'error');
+        }
+    }).catch(() => showToast('Failed to rename', 'error'));
+}
+
+// ============================================
+// New Recording Modal
+// ============================================
+function showNewRecordingModal() {
+    const modal = document.getElementById('newRecordingModal');
+    if (modal) modal.classList.add('show');
+}
+
+function hideNewRecordingModal() {
+    const modal = document.getElementById('newRecordingModal');
+    if (modal) modal.classList.remove('show');
+    document.getElementById('recordingName').value = '';
+    document.getElementById('recordingUrl').value = '';
+}
+
+async function startNewRecording() {
+    const name = document.getElementById('recordingName').value.trim() || 'Untitled Recording';
+    const url = document.getElementById('recordingUrl').value.trim();
+
+    if (!url) {
+        showToast('Please enter a starting URL', 'warning');
+        return;
+    }
+
+    hideNewRecordingModal();
+
+    try {
+        const response = await fetch('/api/recordings/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, url })
+        });
+
+        if (response.ok) {
+            showToast('Recording started in browser...', 'info');
+        } else {
+            const err = await response.json();
+            showToast(`Failed: ${err.detail || 'Unknown error'}`, 'error');
+        }
+    } catch (e) {
+        showToast('Failed to start recording', 'error');
+    }
+}
 
 // ============================================
 // DOM Elements
@@ -714,10 +903,38 @@ async function loadModels() {
 // Event Listeners
 // ============================================
 function setupEventListeners() {
-    // Control buttons
-    elements.startBtn.addEventListener('click', startTask);
-    elements.stopBtn.addEventListener('click', stopTask);
-    elements.pauseBtn.addEventListener('click', togglePause);
+    // Landing page mode cards
+    document.querySelectorAll('.mode-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const mode = card.dataset.mode;
+            if (mode === 'guided') {
+                showView('guided');
+            } else if (mode === 'instructions' || mode === 'goal') {
+                setMode(mode);
+                showView('execution');
+            }
+        });
+    });
+
+    // Back buttons
+    document.getElementById('backToLanding')?.addEventListener('click', () => showView('landing'));
+    document.getElementById('backFromExecution')?.addEventListener('click', () => showView('landing'));
+
+    // Guided view
+    document.getElementById('newRecordingBtn')?.addEventListener('click', showNewRecordingModal);
+    document.getElementById('closeNewRecording')?.addEventListener('click', hideNewRecordingModal);
+    document.getElementById('cancelNewRecording')?.addEventListener('click', hideNewRecordingModal);
+    document.getElementById('startRecording')?.addEventListener('click', startNewRecording);
+
+    // New recording modal - click outside to close
+    document.getElementById('newRecordingModal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'newRecordingModal') hideNewRecordingModal();
+    });
+
+    // Control buttons (execution view)
+    elements.startBtn?.addEventListener('click', startTask);
+    elements.stopBtn?.addEventListener('click', stopTask);
+    elements.pauseBtn?.addEventListener('click', togglePause);
 
     // Mode toggle
     elements.instructionsModeBtn?.addEventListener('click', () => setMode('instructions'));

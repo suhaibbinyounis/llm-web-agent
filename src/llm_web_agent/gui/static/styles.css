@@ -1215,3 +1215,308 @@ select.form-control {
 .footer a:hover {
     text-decoration: underline;
 }
+
+/* ============================================
+   View System
+   ============================================ */
+.view {
+    display: none;
+    min-height: 100vh;
+}
+
+.view.active {
+    display: block;
+}
+
+/* ============================================
+   Landing Page
+   ============================================ */
+.landing-container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xl);
+    background: radial-gradient(ellipse at top, #1a1a2e 0%, var(--bg-primary) 60%);
+}
+
+.landing-header {
+    text-align: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.logo-large {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.logo-large .logo-icon {
+    width: 48px;
+    height: 48px;
+    color: var(--accent-primary);
+}
+
+.logo-large h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--text-primary), var(--accent-primary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.landing-subtitle {
+    font-size: 1.125rem;
+    color: var(--text-secondary);
+}
+
+/* Mode Cards Grid */
+.mode-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-xl);
+    max-width: 1000px;
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .mode-cards {
+        grid-template-columns: 1fr;
+        max-width: 400px;
+    }
+}
+
+.mode-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.mode-card:hover {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.15);
+    transform: translateY(-4px);
+}
+
+.mode-card-icon {
+    font-size: 3rem;
+    line-height: 1;
+}
+
+.mode-card h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.mode-card-desc {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.mode-card-features {
+    list-style: none;
+    text-align: left;
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+    width: 100%;
+}
+
+.mode-card-features li {
+    padding: var(--spacing-xs) 0;
+}
+
+.mode-card-badge {
+    margin-top: auto;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-success {
+    background: var(--status-success-bg);
+    color: var(--status-success);
+}
+
+.badge-warning {
+    background: var(--status-warning-bg);
+    color: var(--status-warning);
+}
+
+.landing-footer {
+    margin-top: var(--spacing-xl);
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.landing-footer a {
+    color: var(--accent-primary);
+    text-decoration: none;
+}
+
+.landing-footer a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================
+   Guided View
+   ============================================ */
+.guided-main {
+    padding: var(--spacing-lg);
+    padding-top: calc(var(--header-height) + var(--spacing-lg));
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.recordings-card {
+    min-height: 400px;
+}
+
+.recordings-count {
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+}
+
+/* Empty State */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xl) * 2;
+    min-height: 300px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.empty-state svg {
+    width: 80px;
+    height: 80px;
+    margin-bottom: var(--spacing-lg);
+    opacity: 0.3;
+}
+
+.empty-state p {
+    font-size: 1.125rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.empty-state span {
+    font-size: 0.875rem;
+}
+
+/* Recordings Table */
+.recordings-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.recordings-table th,
+.recordings-table td {
+    padding: var(--spacing-md) var(--spacing-lg);
+    text-align: left;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.recordings-table th {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.recordings-table tr:hover {
+    background: var(--bg-card-hover);
+}
+
+.recordings-table td {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.recordings-table .recording-name {
+    font-weight: 500;
+}
+
+.recordings-table .recording-url {
+    color: var(--text-tertiary);
+    font-size: 0.8125rem;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recordings-table .recording-date {
+    color: var(--text-tertiary);
+    font-size: 0.8125rem;
+}
+
+.recording-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.recording-actions .btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ============================================
+   Execution View Adjustments
+   ============================================ */
+#executionView .main {
+    padding-top: calc(var(--header-height) + var(--spacing-lg));
+}
+
+/* ============================================
+   Button Colors for Actions
+   ============================================ */
+.btn-success {
+    background: var(--status-success);
+    color: white;
+    border-color: var(--status-success);
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #16a34a;
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+}
+
+/* ============================================
+   Modal Large Variant
+   ============================================ */
+.modal-large {
+    max-width: 700px;
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-xl);
+}
+
+@media (max-width: 600px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+}
