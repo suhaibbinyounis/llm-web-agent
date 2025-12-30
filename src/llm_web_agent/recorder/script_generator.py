@@ -456,10 +456,12 @@ class PlaywrightScriptGenerator:
         elif action.action_type == ActionType.NEW_TAB:
             tab_idx = action.element_info.get("tab_index", 1)
             url = self._escape_string(action.url or "about:blank")
-            lines.append(f"# New tab opened: {url}")
-            lines.append(f"pages.append({await_prefix}context.wait_for_event('page'))")
-            lines.append(f"page = pages[{tab_idx}]")
-            lines.append(f"{await_prefix}page.wait_for_load_state('domcontentloaded')")
+            lines.append(f"# New tab: {url[:60]}...")
+            lines.append(f"new_page = {await_prefix}context.new_page()")
+            lines.append(f"pages.append(new_page)")
+            lines.append(f"page = new_page")
+            if url != "about:blank":
+                lines.append(f'{await_prefix}page.goto("{url}", wait_until="domcontentloaded")')
             
         elif action.action_type == ActionType.SWITCH_TAB:
             to_tab = action.element_info.get("to_tab", 0)
