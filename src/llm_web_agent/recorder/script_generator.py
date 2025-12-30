@@ -180,6 +180,8 @@ class PlaywrightScriptGenerator:
         lines.append("                await loc.check(timeout=1000)")
         lines.append("            elif action_type == 'uncheck':")
         lines.append("                await loc.uncheck(timeout=1000)")
+        lines.append("            elif action_type == 'dblclick':")
+        lines.append("                await loc.dblclick(timeout=1000)")
         lines.append("            return")
         lines.append("        except:")
         lines.append("            continue")
@@ -192,6 +194,7 @@ class PlaywrightScriptGenerator:
         lines.append("        elif action_type == 'select': await loc.select_option(kwargs['value'], timeout=5000)")
         lines.append("        elif action_type == 'check': await loc.check(timeout=5000)")
         lines.append("        elif action_type == 'uncheck': await loc.uncheck(timeout=5000)")
+        lines.append("        elif action_type == 'dblclick': await loc.dblclick(timeout=5000)")
         lines.append("    else:")
         lines.append('        raise Exception("No selectors provided for action")')
         lines.append("")
@@ -422,8 +425,32 @@ class PlaywrightScriptGenerator:
             lines.append(f'{await_prefix}page.keyboard.press("{key}")')
                 
         elif action.action_type == ActionType.SCROLL:
-            if action.y:
-                lines.append(f'{await_prefix}page.mouse.wheel(0, {action.y})')
+            if action.y is not None:
+                # Use scrollTo for absolute positioning (accurate replay)
+                lines.append(f'{await_prefix}page.evaluate("window.scrollTo(0, {action.y})")')
+        
+        elif action.action_type == ActionType.DOUBLE_CLICK:
+            if selectors:
+                if len(selectors) > 1:
+                    lines.append(f"{await_prefix}perform_action(page, 'dblclick', {selectors_code})")
+                else:
+                    s = self._escape_string(selectors[0])
+                    lines.append("try:")
+                    lines.append(f'    {await_prefix}page.locator("{s}").first.dblclick()')
+                    lines.append("except TimeoutError:")
+                    lines.append(f'    print("Double-click timeout for {s[:50]}..., continuing...")')
+        
+        elif action.action_type == ActionType.RIGHT_CLICK:
+            if selectors:
+                s = self._escape_string(selectors[0])
+                lines.append("try:")
+                lines.append(f'    {await_prefix}page.locator("{s}").first.click(button="right")')
+                lines.append("except TimeoutError:")
+                lines.append(f'    print("Right-click timeout for {s[:50]}..., continuing...")')
+        
+        elif action.action_type == ActionType.SELECT_TEXT:
+            text = self._escape_string(action.value or "")[:50]
+            lines.append(f'# Text selected: "{text}..."')
         
         # Multi-tab actions
         elif action.action_type == ActionType.NEW_TAB:

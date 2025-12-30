@@ -23,6 +23,7 @@ class ActionType(str, Enum):
     """Types of recordable actions."""
     NAVIGATE = "navigate"
     CLICK = "click"
+    DOUBLE_CLICK = "double_click"
     FILL = "fill"
     TYPE = "type"
     SELECT = "select"
@@ -32,6 +33,7 @@ class ActionType(str, Enum):
     SCROLL = "scroll"
     HOVER = "hover"
     WAIT = "wait"
+    SELECT_TEXT = "select_text"  # Text highlighting
     # Tab actions
     NEW_TAB = "new_tab"
     SWITCH_TAB = "switch_tab"
@@ -1280,30 +1282,83 @@ class BrowserRecorder:
                 }
             }
             
+            // Scroll handler - records ABSOLUTE position for accurate replay
             let scrollTimeout = null;
-            let scrollStartY = window.scrollY;
+            let lastScrollY = window.scrollY;
             function handleScroll(e) {
                 if (scrollTimeout) clearTimeout(scrollTimeout);
                 scrollTimeout = setTimeout(() => {
-                    const scrollDelta = window.scrollY - scrollStartY;
-                    if (Math.abs(scrollDelta) > 100) {
-                        sendAction({ type: 'scroll', y: scrollDelta });
-                        scrollStartY = window.scrollY;
+                    const currentY = window.scrollY;
+                    // Record if scrolled at least 50px (captures more scrolls)
+                    if (Math.abs(currentY - lastScrollY) > 50) {
+                        sendAction({ 
+                            type: 'scroll', 
+                            y: currentY,  // Absolute position
+                            element_info: { delta: currentY - lastScrollY }
+                        });
+                        lastScrollY = currentY;
                     }
-                }, 300);
+                }, 200);  // Faster response
+            }
+            
+            // Text selection handler
+            function handleSelection() {
+                const selection = window.getSelection();
+                const text = selection.toString().trim();
+                if (text && text.length > 0) {
+                    sendAction({
+                        type: 'select_text',
+                        value: text,
+                        element_info: { length: text.length }
+                    });
+                }
+            }
+            
+            // Double-click handler (for text selection)
+            function handleDblClick(e) {
+                if (e.target.closest('#recorder-panel')) return;
+                const selectors = getSelectors(e.target);
+                sendAction({
+                    type: 'dblclick',
+                    selector: selectors[0],
+                    selectors: selectors,
+                    x: e.clientX,
+                    y: e.clientY,
+                    element_info: getElementInfo(e.target)
+                });
+            }
+            
+            // Right-click handler
+            function handleContextMenu(e) {
+                if (e.target.closest('#recorder-panel')) return;
+                const selectors = getSelectors(e.target);
+                sendAction({
+                    type: 'rightclick',
+                    selector: selectors[0],
+                    selectors: selectors,
+                    x: e.clientX,
+                    y: e.clientY,
+                    element_info: getElementInfo(e.target)
+                });
             }
             
             document.addEventListener('click', handleClick, true);
+            document.addEventListener('dblclick', handleDblClick, true);
+            document.addEventListener('contextmenu', handleContextMenu, true);
             document.addEventListener('input', handleInput, true);
             document.addEventListener('change', handleChange, true);
             document.addEventListener('keydown', handleKeydown, true);
+            document.addEventListener('selectionchange', handleSelection, true);
             window.addEventListener('scroll', handleScroll, true);
             
             window._recorderCleanup = function() {
                 document.removeEventListener('click', handleClick, true);
+                document.removeEventListener('dblclick', handleDblClick, true);
+                document.removeEventListener('contextmenu', handleContextMenu, true);
                 document.removeEventListener('input', handleInput, true);
                 document.removeEventListener('change', handleChange, true);
                 document.removeEventListener('keydown', handleKeydown, true);
+                document.removeEventListener('selectionchange', handleSelection, true);
                 window.removeEventListener('scroll', handleScroll, true);
                 if (scrollTimeout) clearTimeout(scrollTimeout);
             };
@@ -1386,7 +1441,40 @@ class BrowserRecorder:
                 self._record_action(RecordedAction(
                     action_type=ActionType.SCROLL,
                     timestamp_ms=self._elapsed_ms(),
+                    y=event.get("y"),  # Now absolute position
+                    element_info=event.get("element_info", {}),
+                ))
+            
+            elif event_type == "dblclick":
+                self._flush_pending_input()
+                self._record_action(RecordedAction(
+                    action_type=ActionType.DOUBLE_CLICK,
+                    timestamp_ms=self._elapsed_ms(),
+                    selector=event.get("selector"),
+                    selectors=event.get("selectors"),
+                    x=event.get("x"),
                     y=event.get("y"),
+                    element_info=event.get("element_info", {}),
+                ))
+                
+            elif event_type == "rightclick":
+                self._flush_pending_input()
+                self._record_action(RecordedAction(
+                    action_type=ActionType.RIGHT_CLICK,
+                    timestamp_ms=self._elapsed_ms(),
+                    selector=event.get("selector"),
+                    selectors=event.get("selectors"),
+                    x=event.get("x"),
+                    y=event.get("y"),
+                    element_info=event.get("element_info", {}),
+                ))
+                
+            elif event_type == "select_text":
+                self._record_action(RecordedAction(
+                    action_type=ActionType.SELECT_TEXT,
+                    timestamp_ms=self._elapsed_ms(),
+                    value=event.get("value"),
+                    element_info=event.get("element_info", {}),
                 ))
                 
         except Exception as e:
