@@ -202,51 +202,89 @@ async def _start_recording_task(recording_id: str, name: str, url: str):
     global _active_recording
     
     try:
+        from playwright.async_api import async_playwright
         from llm_web_agent.recorder.recorder import BrowserRecorder
-        import traceback
         
         logger.info(f"Starting recording: {name} at {url}")
         
-        # BrowserRecorder only takes show_panel parameter
-        recorder = BrowserRecorder(show_panel=True)
-        
-        session = await recorder.start(url)
-        
-        if session:
-            # Convert session to storable format
-            actions = []
-            for action in session.actions:
-                actions.append({
-                    "action_type": action.action_type.value,
-                    "timestamp_ms": action.timestamp_ms,
-                    "selector": action.selector,
-                    "value": action.value,
-                    "url": action.url,
-                    "key": action.key,
-                    "x": action.x,
-                    "y": action.y,
-                    "element_info": action.element_info,
-                    "selectors": action.selectors,
+        async with async_playwright() as p:
+            # Launch visible browser
+            browser = await p.chromium.launch(headless=False)
+            
+            # Create page
+            page = await browser.new_page(viewport={"width": 1280, "height": 720})
+            
+            # Navigate to URL
+            await page.goto(url)
+            
+            # Create recorder and start
+            recorder = BrowserRecorder(show_panel=True)
+            
+            # Track when to stop
+            stop_requested = False
+            
+            def on_stop_request():
+                nonlocal stop_requested
+                stop_requested = True
+                logger.info("Stop requested from control panel")
+            
+            recorder.on_stop(on_stop_request)
+            await recorder.start(page, name=name, start_url=url)
+            
+            logger.info(f"Recording started, waiting for browser close or stop request...")
+            
+            # Wait for browser to close or stop requested
+            while browser.is_connected() and not stop_requested:
+                await asyncio.sleep(0.2)
+            
+            # Stop recording and get session
+            session = await recorder.stop()
+            
+            if session and len(session.actions) > 0:
+                # Convert session to storable format
+                actions = []
+                for action in session.actions:
+                    actions.append({
+                        "action_type": action.action_type.value,
+                        "timestamp_ms": action.timestamp_ms,
+                        "selector": action.selector,
+                        "value": action.value,
+                        "url": action.url,
+                        "key": action.key,
+                        "x": action.x,
+                        "y": action.y,
+                        "element_info": action.element_info,
+                        "selectors": action.selectors,
+                    })
+                
+                # Save to recordings
+                recordings = _load_recordings()
+                recordings.append({
+                    "id": recording_id,
+                    "name": name,
+                    "start_url": url,
+                    "actions": actions,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
                 })
+                _save_recordings(recordings)
+                
+                logger.info(f"Recording '{name}' saved with {len(actions)} actions")
+            else:
+                logger.info("No actions recorded")
             
-            # Save to recordings
-            recordings = _load_recordings()
-            recordings.append({
-                "id": recording_id,
-                "name": name,
-                "start_url": url,
-                "actions": actions,
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-            })
-            _save_recordings(recordings)
-            
-            logger.info(f"Recording '{name}' saved with {len(actions)} actions")
+            # Close browser if still open
+            try:
+                await browser.close()
+            except Exception:
+                pass
         
         _active_recording = None
         
     except Exception as e:
+        import traceback
         logger.error(f"Recording failed: {e}")
+        logger.error(traceback.format_exc())
         _active_recording = None
 
 
@@ -256,4 +294,3 @@ async def get_recording_status():
     if _active_recording:
         return {"active": True, "recording": _active_recording}
     return {"active": False}
-
