@@ -437,6 +437,81 @@ class BrowserRecorder:
         
         logger.info(f"Tab closed, remaining tabs: {len(self._pages)}")
     
+    async def _inject_loading_indicator(self, page: "Page" = None) -> None:
+        """Inject a lightweight loading indicator while page loads."""
+        target_page = page or self._page
+        if not target_page:
+            return
+        
+        loading_js = """
+        (function() {
+            // Don't duplicate
+            if (document.getElementById('recorder-loading')) return;
+            
+            const indicator = document.createElement('div');
+            indicator.id = 'recorder-loading';
+            indicator.innerHTML = `
+                <style>
+                    #recorder-loading {
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        z-index: 999999;
+                        padding: 12px 20px;
+                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                        color: #ffc107;
+                        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                        font-size: 14px;
+                        font-weight: 500;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        animation: fadeIn 0.3s;
+                    }
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: translateY(-10px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                    #recorder-loading .spinner {
+                        width: 14px;
+                        height: 14px;
+                        border: 2px solid #ffc107;
+                        border-top-color: transparent;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                </style>
+                <div class="spinner"></div>
+                <span>⏳ Waiting for page to load...</span>
+            `;
+            document.body.appendChild(indicator);
+        })();
+        """
+        
+        try:
+            await target_page.evaluate(loading_js)
+        except Exception:
+            pass  # Page may not be ready yet
+    
+    async def _remove_loading_indicator(self, page: "Page" = None) -> None:
+        """Remove the loading indicator when ready."""
+        target_page = page or self._page
+        if not target_page:
+            return
+        
+        try:
+            await target_page.evaluate("""
+                const el = document.getElementById('recorder-loading');
+                if (el) el.remove();
+            """)
+        except Exception:
+            pass
+    
     async def _inject_control_panel(self) -> None:
         """Inject the floating control panel into the page."""
         if not self._page:
@@ -727,13 +802,18 @@ class BrowserRecorder:
         """
         
         try:
+            # Remove loading indicator if present (transition to full panel)
+            await self._remove_loading_indicator()
             await self._page.evaluate(panel_js)
             
-            # Re-inject panel on navigation
+            # Re-inject panel on navigation with loading transition
             async def reinject_panel():
-                await asyncio.sleep(0.5)
+                # Show loading indicator immediately
+                await self._inject_loading_indicator()
+                await asyncio.sleep(0.3)  # Give page a moment
                 if self._page and self._is_recording and self._show_panel:
                     try:
+                        await self._remove_loading_indicator()
                         await self._page.evaluate(panel_js)
                     except Exception:
                         pass
