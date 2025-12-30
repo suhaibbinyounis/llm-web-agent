@@ -85,7 +85,8 @@ function renderRecordings() {
     table.style.display = 'table';
 
     tbody.innerHTML = AppState.recordings.map(rec => `
-        <tr data-id="${rec.id}">
+    tbody.innerHTML = AppState.recordings.map(rec => `
+        < tr data - id="${rec.id}" >
             <td class="recording-name">${escapeHtml(rec.name)}</td>
             <td class="recording-url" title="${escapeHtml(rec.start_url)}">${escapeHtml(rec.start_url || '-')}</td>
             <td>${rec.actions?.length || 0}</td>
@@ -93,12 +94,13 @@ function renderRecordings() {
             <td>
                 <div class="recording-actions">
                     <button class="btn btn-success btn-sm" onclick="runRecording('${rec.id}')" title="Run">▶</button>
+                    <button class="btn btn-primary btn-sm" onclick="downloadScript('${rec.id}')" title="Download Script" style="margin-left: 4px;">⬇️</button>
                     <button class="btn btn-secondary btn-sm" onclick="editRecording('${rec.id}')" title="Edit">✎</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteRecording('${rec.id}')" title="Delete">✕</button>
                 </div>
             </td>
-        </tr>
-    `).join('');
+        </tr >
+        `).join('');
 }
 
 function escapeHtml(str) {
@@ -119,15 +121,42 @@ async function runRecording(id) {
     showToast(`Running "${rec.name}"...`, 'info');
 
     try {
-        const response = await fetch(`/api/recordings/${id}/run`, { method: 'POST' });
+        const response = await fetch(`/ api / recordings / ${ id } / run`, { method: 'POST' });
         if (response.ok) {
             showToast('Recording started!', 'success');
         } else {
             const err = await response.json();
-            showToast(`Failed: ${err.detail || 'Unknown error'}`, 'error');
+            showToast(`Failed: ${ err.detail || 'Unknown error' }`, 'error');
         }
     } catch (e) {
         showToast('Failed to run recording', 'error');
+    }
+}
+
+async function downloadScript(id) {
+    const rec = AppState.recordings.find(r => r.id === id);
+    if (!rec) return;
+
+    try {
+        const response = await fetch(`/ api / recordings / ${ id } / script`);
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = response.headers.get('Content-Disposition') ? 
+                response.headers.get('Content-Disposition').split('filename=')[1].replace(/"/g, '') : 
+                `${ rec.name.replace(/\s+/g, '_') }.py`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            showToast('Download started', 'success');
+        } else {
+            showToast('Failed to generate script', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to download script', 'error');
     }
 }
 
@@ -135,10 +164,10 @@ async function deleteRecording(id) {
     const rec = AppState.recordings.find(r => r.id === id);
     if (!rec) return;
 
-    if (!confirm(`Delete "${rec.name}"?`)) return;
+    if (!confirm(`Delete "${rec.name}" ? `)) return;
 
     try {
-        const response = await fetch(`/api/recordings/${id}`, { method: 'DELETE' });
+        const response = await fetch(`/ api / recordings / ${ id }`, { method: 'DELETE' });
         if (response.ok) {
             showToast('Recording deleted', 'success');
             loadRecordings();
@@ -157,7 +186,7 @@ function editRecording(id) {
     const newName = prompt('Rename recording:', rec.name);
     if (!newName || newName === rec.name) return;
 
-    fetch(`/api/recordings/${id}`, {
+    fetch(`/ api / recordings / ${ id }`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName })
@@ -169,6 +198,19 @@ function editRecording(id) {
             showToast('Failed to rename', 'error');
         }
     }).catch(() => showToast('Failed to rename', 'error'));
+}
+
+async function openRecordingsFolder() {
+    try {
+        const response = await fetch('/api/recordings/open-folder', { method: 'POST' });
+        if (response.ok) {
+            showToast('Folder opened', 'success');
+        } else {
+            showToast('Failed to open folder', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to open folder', 'error');
+    }
 }
 
 // ============================================
@@ -208,7 +250,7 @@ async function startNewRecording() {
             showToast('Recording started in browser...', 'info');
         } else {
             const err = await response.json();
-            showToast(`Failed: ${err.detail || 'Unknown error'}`, 'error');
+            showToast(`Failed: ${ err.detail || 'Unknown error' }`, 'error');
         }
     } catch (e) {
         showToast('Failed to start recording', 'error');
@@ -308,15 +350,15 @@ function formatTime(date) {
 
 function formatDuration(seconds) {
     if (seconds < 60) {
-        return `${Math.round(seconds)}s`;
+        return `${ Math.round(seconds) }s`;
     } else if (seconds < 3600) {
         const mins = Math.floor(seconds / 60);
         const secs = Math.round(seconds % 60);
-        return `${mins}m ${secs}s`;
+        return `${ mins }m ${ secs }s`;
     } else {
         const hours = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
-        return `${hours}h ${mins}m`;
+        return `${ hours }h ${ mins }m`;
     }
 }
 
@@ -325,7 +367,7 @@ function formatDuration(seconds) {
 // ============================================
 function showToast(message, type = 'info', duration = 4000) {
     const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
+    toast.className = `toast toast - ${ type }`;
 
     const icons = {
         info: 'ℹ️',
@@ -335,7 +377,7 @@ function showToast(message, type = 'info', duration = 4000) {
     };
 
     toast.innerHTML = `
-        <span class="toast-icon">${icons[type]}</span>
+    < span class= "toast-icon" > ${ icons[type]}</span >
         <span class="toast-message">${message}</span>
         <button class="toast-close" onclick="this.parentElement.remove()">×</button>
     `;
@@ -387,7 +429,7 @@ function connectSSE() {
         const data = JSON.parse(e.data);
         const step = data.step;
 
-        addLog(`Step ${step.step_number}: ${step.action} - ${step.message}`,
+        addLog(`Step ${ step.step_number }: ${ step.action } - ${ step.message }`,
             step.status === 'success' ? 'success' :
                 step.status === 'failed' ? 'error' : 'info');
 
@@ -402,7 +444,7 @@ function connectSSE() {
         elements.runId.textContent = data.run_id;
         AppState.steps = [];
         clearStepTable();
-        addLog(`Run started: ${data.task.substring(0, 50)}...`, 'info');
+        addLog(`Run started: ${ data.task.substring(0, 50) }...`, 'info');
         showToast('Task started', 'success');
     });
 
@@ -414,8 +456,8 @@ function connectSSE() {
             addLog('Run completed successfully', 'success');
             showToast('Task completed!', 'success');
         } else {
-            addLog(`Run failed: ${data.error || 'Unknown error'}`, 'error');
-            showToast(`Task failed: ${data.error}`, 'error');
+            addLog(`Run failed: ${ data.error || 'Unknown error' }`, 'error');
+            showToast(`Task failed: ${ data.error }`, 'error');
         }
 
         stopDurationTimer();
@@ -434,7 +476,7 @@ function updateStatus(status) {
 
     // Update badge class
     elements.statusBadge.className = 'status-badge';
-    elements.statusBadge.classList.add(`status-${status}`);
+    elements.statusBadge.classList.add(`status - ${ status }`);
 
     // Update button states
     const isRunning = ['running', 'starting', 'paused', 'stopping'].includes(status);
@@ -447,19 +489,19 @@ function updateStatus(status) {
 
     if (isPaused) {
         elements.pauseBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            Resume
-        `;
+    < svg viewBox = "0 0 24 24" fill = "currentColor" >
+    <polygon points="5 3 19 12 5 21 5 3" />
+            </svg >
+        Resume
+            `;
     } else {
         elements.pauseBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="currentColor">
+        < svg viewBox = "0 0 24 24" fill = "currentColor" >
                 <rect x="6" y="4" width="4" height="16" />
                 <rect x="14" y="4" width="4" height="16" />
-            </svg>
-            Pause
-        `;
+            </svg >
+        Pause
+            `;
     }
 
     // Show/hide progress bar
@@ -471,7 +513,7 @@ function updateStatus(status) {
 // ============================================
 function updateStepTable(step) {
     // Find or create row
-    let row = document.querySelector(`#stepsTableBody tr[data-step="${step.step_number}"]`);
+    let row = document.querySelector(`#stepsTableBody tr[data - step= "${step.step_number}"]`);
 
     if (!row) {
         row = document.createElement('tr');
@@ -486,16 +528,16 @@ function updateStepTable(step) {
         pending: '○'
     }[step.status] || '○';
 
-    const statusClass = `step-${step.status}`;
-    const duration = step.duration_ms ? `${(step.duration_ms / 1000).toFixed(1)}s` : '-';
+    const statusClass = `step - ${ step.status }`;
+    const duration = step.duration_ms ? `${(step.duration_ms / 1000).toFixed(1)} s` : '-';
 
     row.innerHTML = `
-        <td>${step.step_number}</td>
+    < td > ${ step.step_number }</td >
         <td>${step.action}</td>
         <td title="${step.message}">${step.message.substring(0, 30)}${step.message.length > 30 ? '...' : ''}</td>
         <td class="${statusClass}">${statusIcon}</td>
         <td>${duration}</td>
-    `;
+`;
 
     // Scroll to bottom
     elements.stepsTableBody.parentElement.scrollTop = elements.stepsTableBody.parentElement.scrollHeight;
@@ -507,12 +549,12 @@ function clearStepTable() {
 
 function updateProgress(current, total = null) {
     if (total) {
-        elements.progress.textContent = `${current} / ${total}`;
-        const percent = (current / total) * 100;
-        elements.progressBar.style.width = `${percent}%`;
+        elements.progress.textContent = `${ current } / ${total}`;
+const percent = (current / total) * 100;
+elements.progressBar.style.width = `${percent}%`;
     } else {
-        elements.progress.textContent = `${current} / ?`;
-    }
+    elements.progress.textContent = `${current} / ?`;
+}
 }
 
 // ============================================

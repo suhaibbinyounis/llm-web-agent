@@ -173,6 +173,86 @@ async def _run_recording_task(recording: dict):
         logger.error(f"Failed to run recording: {e}")
 
 
+@router.get("/{recording_id}/script")
+async def download_script(recording_id: str):
+    """Generate and return the Python script for a recording."""
+    recordings = _load_recordings()
+    
+    for rec in recordings:
+        if rec["id"] == recording_id:
+            try:
+                from llm_web_agent.recorder.script_generator import PlaywrightScriptGenerator
+                from llm_web_agent.recorder.recorder import RecordedAction, RecordingSession, ActionType
+                
+                # Convert stored actions to RecordedAction objects
+                actions = []
+                for action_data in rec.get("actions", []):
+                    action = RecordedAction(
+                        action_type=ActionType(action_data.get("action_type", "navigate")),
+                        timestamp_ms=action_data.get("timestamp_ms", 0),
+                        selector=action_data.get("selector"),
+                        value=action_data.get("value"),
+                        url=action_data.get("url"),
+                        key=action_data.get("key"),
+                        x=action_data.get("x"),
+                        y=action_data.get("y"),
+                        element_info=action_data.get("element_info", {}),
+                        selectors=action_data.get("selectors", []),
+                    )
+                    actions.append(action)
+                
+                # Create session
+                session = RecordingSession(
+                    name=rec["name"],
+                    start_url=rec.get("start_url", ""),
+                    recorded_at=rec.get("created_at") or datetime.now().isoformat(),
+                    actions=actions,
+                )
+                
+                # Generate script
+                generator = PlaywrightScriptGenerator(include_timing=True, include_comments=True)
+                script = generator.generate(session)
+                
+                # Return as file response
+                from fastapi.responses import Response
+                return Response(
+                    content=script,
+                    media_type="text/x-python",
+                    headers={"Content-Disposition": f'attachment; filename="{rec["name"].replace(" ", "_")}.py"'}
+                )
+                
+            except Exception as e:
+                logger.error(f"Failed to generate script: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+    
+    raise HTTPException(status_code=404, detail="Recording not found")
+
+
+@router.post("/open-folder")
+async def open_recordings_folder():
+    """Open the folder containing the recordings file."""
+    try:
+        import platform
+        import subprocess
+        
+        path = RECORDINGS_FILE.absolute().parent
+        
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            subprocess.run(["open", str(path)])
+        elif system == "Windows":
+            subprocess.run(["explorer", str(path)])
+        elif system == "Linux":
+            subprocess.run(["xdg-open", str(path)])
+        else:
+            return {"message": "OS not supported for folder opening"}
+            
+        return {"message": "Folder opened"}
+    except Exception as e:
+        logger.error(f"Failed to open folder: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/start")
 async def start_recording(data: NewRecordingRequest, background_tasks: BackgroundTasks):
     """Start a new browser recording session."""

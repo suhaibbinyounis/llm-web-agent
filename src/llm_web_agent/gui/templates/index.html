@@ -34,7 +34,8 @@
                 <div class="mode-card" data-mode="guided">
                     <div class="mode-card-icon">🎯</div>
                     <h2>Guided Automation</h2>
-                    <p class="mode-card-desc">Record your actions and replay them anytime. Perfect for repetitive workflows.</p>
+                    <p class="mode-card-desc">Record your actions and replay them anytime. Perfect for repetitive
+                        workflows.</p>
                     <ul class="mode-card-features">
                         <li>✓ Record browser actions</li>
                         <li>✓ Save & manage recordings</li>
@@ -47,7 +48,8 @@
                 <div class="mode-card" data-mode="instructions">
                     <div class="mode-card-icon">💬</div>
                     <h2>Natural Language</h2>
-                    <p class="mode-card-desc">Describe tasks in plain English. AI interprets and executes your instructions.</p>
+                    <p class="mode-card-desc">Describe tasks in plain English. AI interprets and executes your
+                        instructions.</p>
                     <ul class="mode-card-features">
                         <li>✓ Step-by-step instructions</li>
                         <li>✓ Smart element finding</li>
@@ -82,7 +84,7 @@
             <div class="header-left">
                 <button class="btn btn-ghost" id="backToLanding" title="Back">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                        <path d="M19 12H5M12 19l-7-7 7-7" />
                     </svg>
                 </button>
                 <div class="logo">
@@ -90,10 +92,17 @@
                 </div>
             </div>
             <div class="header-right">
+                <button class="btn btn-secondary btn-outline" id="openFolderBtn" onclick="openRecordingsFolder()"
+                    title="Open Recordings Folder" style="margin-right: 8px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Open Folder
+                </button>
                 <button class="btn btn-primary" id="newRecordingBtn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                        <circle cx="12" cy="12" r="10" />
+                        <circle cx="12" cy="12" r="3" fill="currentColor" />
                     </svg>
                     New Recording
                 </button>
@@ -110,9 +119,9 @@
                     <!-- Empty state -->
                     <div class="empty-state" id="emptyState">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <rect x="3" y="3" width="18" height="18" rx="2"/>
-                            <circle cx="12" cy="12" r="3"/>
-                            <path d="M12 8v1M12 15v1M8 12h1M15 12h1"/>
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 8v1M12 15v1M8 12h1M15 12h1" />
                         </svg>
                         <p>No recordings yet</p>
                         <span>Click "New Recording" to get started</span>
@@ -144,7 +153,7 @@
             <div class="header-left">
                 <button class="btn btn-ghost" id="backFromExecution" title="Back">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                        <path d="M19 12H5M12 19l-7-7 7-7" />
                     </svg>
                 </button>
                 <div class="logo">
@@ -160,7 +169,8 @@
                 <button class="btn btn-ghost" id="settingsBtn" title="Settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                     </svg>
                 </button>
                 <button class="btn btn-ghost" id="helpBtn" title="Help">
@@ -326,7 +336,8 @@
                                 </svg>
                                 <p>Browser preview will appear here</p>
                             </div>
-                            <img id="screenshotImg" class="screenshot-img" alt="Browser screenshot" style="display: none;">
+                            <img id="screenshotImg" class="screenshot-img" alt="Browser screenshot"
+                                style="display: none;">
                         </div>
                     </div>
                 </div>
@@ -344,7 +355,8 @@
                             <button class="btn btn-ghost btn-sm" id="clearLogs" title="Clear logs">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <polyline points="3 6 5 6 21 6" />
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                    <path
+                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                                 </svg>
                             </button>
                         </div>
@@ -377,7 +389,7 @@
     </div>
 
     <!-- ===================== MODALS ===================== -->
-    
+
     <!-- New Recording Modal -->
     <div class="modal-overlay" id="newRecordingModal">
         <div class="modal">
@@ -404,7 +416,7 @@
                 <button class="btn btn-secondary" id="cancelNewRecording">Cancel</button>
                 <button class="btn btn-primary" id="startRecording">
                     <svg viewBox="0 0 24 24" fill="currentColor" style="width: 16px; height: 16px;">
-                        <circle cx="12" cy="12" r="6"/>
+                        <circle cx="12" cy="12" r="6" />
                     </svg>
                     Start Recording
                 </button>
@@ -498,10 +510,10 @@
             <div class="modal-body help-content">
                 <h3>🎯 Guided Automation</h3>
                 <p>Record your browser actions and replay them later. No LLM API needed.</p>
-                
+
                 <h3>📋 Natural Language</h3>
                 <p>Enter step-by-step instructions in plain English. Requires LLM API access.</p>
-                
+
                 <h3>🚀 Goal Mode</h3>
                 <p>Set a high-level goal and let AI plan the steps. Requires LLM API access.</p>
             </div>
