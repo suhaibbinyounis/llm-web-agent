@@ -120,7 +120,7 @@ async function runRecording(id) {
     showToast(`Running "${rec.name}"...`, 'info');
 
     try {
-        const response = await fetch(`/ api / recordings / ${id} / run`, { method: 'POST' });
+        const response = await fetch(`/api/recordings/${id}/run`, { method: 'POST' });
         if (response.ok) {
             showToast('Recording started!', 'success');
         } else {
@@ -137,7 +137,7 @@ async function downloadScript(id) {
     if (!rec) return;
 
     try {
-        const response = await fetch(`/ api / recordings / ${id} / script`);
+        const response = await fetch(`/api/recordings/${id}/script`);
         if (response.ok) {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -475,7 +475,7 @@ function updateStatus(status) {
 
     // Update badge class
     elements.statusBadge.className = 'status-badge';
-    elements.statusBadge.classList.add(`status - ${status}`);
+    elements.statusBadge.classList.add(`status-${status}`);
 
     // Update button states
     const isRunning = ['running', 'starting', 'paused', 'stopping'].includes(status);
@@ -488,23 +488,24 @@ function updateStatus(status) {
 
     if (isPaused) {
         elements.pauseBtn.innerHTML = `
-    < svg viewBox = "0 0 24 24" fill = "currentColor" >
-    <polygon points="5 3 19 12 5 21 5 3" />
-            </svg >
-        Resume
-            `;
+            <svg viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            Resume
+        `;
     } else {
         elements.pauseBtn.innerHTML = `
-        < svg viewBox = "0 0 24 24" fill = "currentColor" >
+            <svg viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="4" width="4" height="16" />
                 <rect x="14" y="4" width="4" height="16" />
-            </svg >
-        Pause
-            `;
+            </svg>
+            Pause
+        `;
     }
+}
 
-    // Show/hide progress bar
-    elements.progressBarContainer.style.display = isRunning ? 'block' : 'none';
+// Show/hide progress bar
+elements.progressBarContainer.style.display = isRunning ? 'block' : 'none';
 }
 
 // ============================================
@@ -527,16 +528,16 @@ function updateStepTable(step) {
         pending: '○'
     }[step.status] || '○';
 
-    const statusClass = `step - ${step.status}`;
+    const statusClass = `step - ${step.status} `;
     const duration = step.duration_ms ? `${(step.duration_ms / 1000).toFixed(1)} s` : '-';
 
     row.innerHTML = `
-    < td > ${step.step_number}</td >
+        < td > ${step.step_number}</td >
         <td>${step.action}</td>
         <td title="${step.message}">${step.message.substring(0, 30)}${step.message.length > 30 ? '...' : ''}</td>
         <td class="${statusClass}">${statusIcon}</td>
         <td>${duration}</td>
-`;
+    `;
 
     // Scroll to bottom
     elements.stepsTableBody.parentElement.scrollTop = elements.stepsTableBody.parentElement.scrollHeight;
@@ -881,13 +882,15 @@ async function loadInstructionFiles() {
 
         const files = await response.json();
 
-        elements.instructionFile.innerHTML = '<option value="">Select instruction file...</option>';
-        files.forEach(file => {
-            const option = document.createElement('option');
-            option.value = file.name;
-            option.textContent = `${file.name} (${file.lines} lines)`;
-            elements.instructionFile.appendChild(option);
-        });
+        if (elements.instructionFile) {
+            elements.instructionFile.innerHTML = '<option value="">Select instruction file...</option>';
+            files.forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.name;
+                option.textContent = `${file.name} (${file.lines} lines)`;
+                elements.instructionFile.appendChild(option);
+            });
+        }
 
     } catch (e) {
         console.error('Failed to load instruction files:', e);
