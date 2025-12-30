@@ -542,7 +542,13 @@ class PlaywrightScriptGenerator:
         """Escape a string for use in Python code."""
         if s is None:
             return ""
-        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        # Order matters: backslash first, then other escapes
+        s = s.replace("\\", "\\\\")
+        s = s.replace('"', '\\"')
+        s = s.replace("\n", "\\n")
+        s = s.replace("\r", "\\r")
+        s = s.replace("\t", "\\t")
+        return s
 
 
 def generate_instruction_file(session: RecordingSession) -> str:
