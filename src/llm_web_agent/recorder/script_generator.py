@@ -213,11 +213,13 @@ class PlaywrightScriptGenerator:
         
         # Generate actions
         prev_timestamp = 0
+        prev_action = None
         for i, action in enumerate(session.actions):
-            action_lines = self._generate_action(action, i + 1, prev_timestamp)
+            action_lines = self._generate_action(action, i + 1, prev_timestamp, prev_action=prev_action)
             for line in action_lines:
                 lines.append("        " + line)
             prev_timestamp = action.timestamp_ms
+            prev_action = action
         
         lines.append("")
         lines.append("        print('Replay completed successfully!')")
@@ -303,11 +305,13 @@ class PlaywrightScriptGenerator:
         
         # Generate actions
         prev_timestamp = 0
+        prev_action = None
         for i, action in enumerate(session.actions):
-            action_lines = self._generate_action(action, i + 1, prev_timestamp, sync=True)
+            action_lines = self._generate_action(action, i + 1, prev_timestamp, sync=True, prev_action=prev_action)
             for line in action_lines:
                 lines.append("        " + line)
             prev_timestamp = action.timestamp_ms
+            prev_action = action
         
         lines.append("")
         lines.append("        print('Replay completed successfully!')")
@@ -327,6 +331,7 @@ class PlaywrightScriptGenerator:
         step_num: int,
         prev_timestamp: int,
         sync: bool = False,
+        prev_action: Optional[RecordedAction] = None,
     ) -> List[str]:
         """Generate code for a single action."""
         lines = []
@@ -454,14 +459,22 @@ class PlaywrightScriptGenerator:
         
         # Multi-tab actions
         elif action.action_type == ActionType.NEW_TAB:
-            tab_idx = action.element_info.get("tab_index", 1)
             url = self._escape_string(action.url or "about:blank")
-            lines.append(f"# New tab: {url[:60]}...")
-            lines.append(f"new_page = {await_prefix}context.new_page()")
-            lines.append(f"pages.append(new_page)")
-            lines.append(f"page = new_page")
-            if url != "about:blank":
-                lines.append(f'{await_prefix}page.goto("{url}", wait_until="domcontentloaded")')
+            
+            # Check if previous action was a click (which opens the tab automatically)
+            click_types = (ActionType.CLICK, ActionType.DOUBLE_CLICK)
+            if prev_action and prev_action.action_type in click_types:
+                # Click already opened the tab - just add a short wait for it to load
+                lines.append(f"# Tab opened by click: {url[:50]}...")
+                lines.append(f"{await_prefix}asyncio.sleep(1)  # Wait for popup to load")
+            else:
+                # No click, explicitly open new tab
+                lines.append(f"# New tab: {url[:60]}...")
+                lines.append(f"new_page = {await_prefix}context.new_page()")
+                lines.append(f"pages.append(new_page)")
+                lines.append(f"page = new_page")
+                if url != "about:blank":
+                    lines.append(f'{await_prefix}page.goto("{url}", wait_until="domcontentloaded")')
             
         elif action.action_type == ActionType.SWITCH_TAB:
             to_tab = action.element_info.get("to_tab", 0)
