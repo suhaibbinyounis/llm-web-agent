@@ -502,10 +502,9 @@ function updateStatus(status) {
             Pause
         `;
     }
-}
 
-// Show/hide progress bar
-elements.progressBarContainer.style.display = isRunning ? 'block' : 'none';
+    // Show/hide progress bar
+    elements.progressBarContainer.style.display = isRunning ? 'block' : 'none';
 }
 
 // ============================================
