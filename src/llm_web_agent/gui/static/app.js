@@ -85,8 +85,7 @@ function renderRecordings() {
     table.style.display = 'table';
 
     tbody.innerHTML = AppState.recordings.map(rec => `
-    tbody.innerHTML = AppState.recordings.map(rec => `
-        < tr data - id="${rec.id}" >
+        <tr data-id="${rec.id}">
             <td class="recording-name">${escapeHtml(rec.name)}</td>
             <td class="recording-url" title="${escapeHtml(rec.start_url)}">${escapeHtml(rec.start_url || '-')}</td>
             <td>${rec.actions?.length || 0}</td>
@@ -99,8 +98,8 @@ function renderRecordings() {
                     <button class="btn btn-danger btn-sm" onclick="deleteRecording('${rec.id}')" title="Delete">✕</button>
                 </div>
             </td>
-        </tr >
-        `).join('');
+        </tr>
+    `).join('');
 }
 
 function escapeHtml(str) {
@@ -121,12 +120,12 @@ async function runRecording(id) {
     showToast(`Running "${rec.name}"...`, 'info');
 
     try {
-        const response = await fetch(`/ api / recordings / ${ id } / run`, { method: 'POST' });
+        const response = await fetch(`/ api / recordings / ${id} / run`, { method: 'POST' });
         if (response.ok) {
             showToast('Recording started!', 'success');
         } else {
             const err = await response.json();
-            showToast(`Failed: ${ err.detail || 'Unknown error' }`, 'error');
+            showToast(`Failed: ${err.detail || 'Unknown error'}`, 'error');
         }
     } catch (e) {
         showToast('Failed to run recording', 'error');
@@ -138,15 +137,15 @@ async function downloadScript(id) {
     if (!rec) return;
 
     try {
-        const response = await fetch(`/ api / recordings / ${ id } / script`);
+        const response = await fetch(`/ api / recordings / ${id} / script`);
         if (response.ok) {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = response.headers.get('Content-Disposition') ? 
-                response.headers.get('Content-Disposition').split('filename=')[1].replace(/"/g, '') : 
-                `${ rec.name.replace(/\s+/g, '_') }.py`;
+            a.download = response.headers.get('Content-Disposition') ?
+                response.headers.get('Content-Disposition').split('filename=')[1].replace(/"/g, '') :
+                `${rec.name.replace(/\s+/g, '_')}.py`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -167,7 +166,7 @@ async function deleteRecording(id) {
     if (!confirm(`Delete "${rec.name}" ? `)) return;
 
     try {
-        const response = await fetch(`/ api / recordings / ${ id }`, { method: 'DELETE' });
+        const response = await fetch(`/ api / recordings / ${id}`, { method: 'DELETE' });
         if (response.ok) {
             showToast('Recording deleted', 'success');
             loadRecordings();
@@ -186,7 +185,7 @@ function editRecording(id) {
     const newName = prompt('Rename recording:', rec.name);
     if (!newName || newName === rec.name) return;
 
-    fetch(`/ api / recordings / ${ id }`, {
+    fetch(`/ api / recordings / ${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName })
@@ -250,7 +249,7 @@ async function startNewRecording() {
             showToast('Recording started in browser...', 'info');
         } else {
             const err = await response.json();
-            showToast(`Failed: ${ err.detail || 'Unknown error' }`, 'error');
+            showToast(`Failed: ${err.detail || 'Unknown error'}`, 'error');
         }
     } catch (e) {
         showToast('Failed to start recording', 'error');
@@ -350,15 +349,15 @@ function formatTime(date) {
 
 function formatDuration(seconds) {
     if (seconds < 60) {
-        return `${ Math.round(seconds) }s`;
+        return `${Math.round(seconds)}s`;
     } else if (seconds < 3600) {
         const mins = Math.floor(seconds / 60);
         const secs = Math.round(seconds % 60);
-        return `${ mins }m ${ secs }s`;
+        return `${mins}m ${secs}s`;
     } else {
         const hours = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
-        return `${ hours }h ${ mins }m`;
+        return `${hours}h ${mins}m`;
     }
 }
 
@@ -367,7 +366,7 @@ function formatDuration(seconds) {
 // ============================================
 function showToast(message, type = 'info', duration = 4000) {
     const toast = document.createElement('div');
-    toast.className = `toast toast - ${ type }`;
+    toast.className = `toast toast - ${type}`;
 
     const icons = {
         info: 'ℹ️',
@@ -377,7 +376,7 @@ function showToast(message, type = 'info', duration = 4000) {
     };
 
     toast.innerHTML = `
-    < span class= "toast-icon" > ${ icons[type]}</span >
+    < span class= "toast-icon" > ${icons[type]}</span >
         <span class="toast-message">${message}</span>
         <button class="toast-close" onclick="this.parentElement.remove()">×</button>
     `;
@@ -429,7 +428,7 @@ function connectSSE() {
         const data = JSON.parse(e.data);
         const step = data.step;
 
-        addLog(`Step ${ step.step_number }: ${ step.action } - ${ step.message }`,
+        addLog(`Step ${step.step_number}: ${step.action} - ${step.message}`,
             step.status === 'success' ? 'success' :
                 step.status === 'failed' ? 'error' : 'info');
 
@@ -444,7 +443,7 @@ function connectSSE() {
         elements.runId.textContent = data.run_id;
         AppState.steps = [];
         clearStepTable();
-        addLog(`Run started: ${ data.task.substring(0, 50) }...`, 'info');
+        addLog(`Run started: ${data.task.substring(0, 50)}...`, 'info');
         showToast('Task started', 'success');
     });
 
@@ -456,8 +455,8 @@ function connectSSE() {
             addLog('Run completed successfully', 'success');
             showToast('Task completed!', 'success');
         } else {
-            addLog(`Run failed: ${ data.error || 'Unknown error' }`, 'error');
-            showToast(`Task failed: ${ data.error }`, 'error');
+            addLog(`Run failed: ${data.error || 'Unknown error'}`, 'error');
+            showToast(`Task failed: ${data.error}`, 'error');
         }
 
         stopDurationTimer();
@@ -476,7 +475,7 @@ function updateStatus(status) {
 
     // Update badge class
     elements.statusBadge.className = 'status-badge';
-    elements.statusBadge.classList.add(`status - ${ status }`);
+    elements.statusBadge.classList.add(`status - ${status}`);
 
     // Update button states
     const isRunning = ['running', 'starting', 'paused', 'stopping'].includes(status);
@@ -528,11 +527,11 @@ function updateStepTable(step) {
         pending: '○'
     }[step.status] || '○';
 
-    const statusClass = `step - ${ step.status }`;
+    const statusClass = `step - ${step.status}`;
     const duration = step.duration_ms ? `${(step.duration_ms / 1000).toFixed(1)} s` : '-';
 
     row.innerHTML = `
-    < td > ${ step.step_number }</td >
+    < td > ${step.step_number}</td >
         <td>${step.action}</td>
         <td title="${step.message}">${step.message.substring(0, 30)}${step.message.length > 30 ? '...' : ''}</td>
         <td class="${statusClass}">${statusIcon}</td>
@@ -549,12 +548,12 @@ function clearStepTable() {
 
 function updateProgress(current, total = null) {
     if (total) {
-        elements.progress.textContent = `${ current } / ${total}`;
-const percent = (current / total) * 100;
-elements.progressBar.style.width = `${percent}%`;
+        elements.progress.textContent = `${current} / ${total}`;
+        const percent = (current / total) * 100;
+        elements.progressBar.style.width = `${percent}%`;
     } else {
-    elements.progress.textContent = `${current} / ?`;
-}
+        elements.progress.textContent = `${current} / ?`;
+    }
 }
 
 // ============================================
