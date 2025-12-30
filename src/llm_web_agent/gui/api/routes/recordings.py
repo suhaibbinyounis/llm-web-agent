@@ -132,7 +132,7 @@ async def run_recording(recording_id: str, background_tasks: BackgroundTasks):
 async def _run_recording_task(recording: dict):
     """Background task to run a recording."""
     try:
-        from llm_web_agent.recorder.script_generator import ScriptGenerator
+        from llm_web_agent.recorder.script_generator import PlaywrightScriptGenerator
         from llm_web_agent.recorder.recorder import RecordedAction, RecordingSession, ActionType
         
         # Convert stored actions to RecordedAction objects
@@ -160,7 +160,7 @@ async def _run_recording_task(recording: dict):
             actions=actions,
         )
         
-        generator = ScriptGenerator(timing=True, comments=True)
+        generator = PlaywrightScriptGenerator(include_timing=True, include_comments=True)
         script = generator.generate(session)
         
         # Execute the script
