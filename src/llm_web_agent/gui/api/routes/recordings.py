@@ -203,14 +203,12 @@ async def _start_recording_task(recording_id: str, name: str, url: str):
     
     try:
         from llm_web_agent.recorder.recorder import BrowserRecorder
+        import traceback
         
         logger.info(f"Starting recording: {name} at {url}")
         
-        recorder = BrowserRecorder(
-            output_path=None,  # We'll save to our recordings.json
-            headless=False,
-            session_name=name,
-        )
+        # BrowserRecorder only takes show_panel parameter
+        recorder = BrowserRecorder(show_panel=True)
         
         session = await recorder.start(url)
         
