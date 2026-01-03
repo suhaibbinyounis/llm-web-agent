@@ -1,0 +1,326 @@
+{
+  "recordings": [
+    {
+      "id": "431046ee-dadc-49af-a1ea-e8e4907a7e3e",
+      "name": "wiki",
+      "start_url": "https://wikipedia.com",
+      "actions": [
+        {
+          "action_type": "navigate",
+          "timestamp_ms": 112,
+          "selector": null,
+          "value": null,
+          "url": "https://wikipedia.com",
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {},
+          "selectors": null
+        },
+        {
+          "action_type": "navigate",
+          "timestamp_ms": 23601,
+          "selector": null,
+          "value": null,
+          "url": "https://en.wikipedia.org/wiki/Suhaib",
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {},
+          "selectors": null
+        },
+        {
+          "action_type": "click",
+          "timestamp_ms": 28690,
+          "selector": "text=Suhaib Webb",
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": 121,
+          "y": 312,
+          "element_info": {
+            "tag": "a",
+            "id": null,
+            "text": "Suhaib Webb",
+            "type": null,
+            "name": null,
+            "placeholder": null
+          },
+          "selectors": [
+            "text=Suhaib Webb",
+            "ul > li:nth-child(3) > a"
+          ]
+        },
+        {
+          "action_type": "navigate",
+          "timestamp_ms": 28785,
+          "selector": null,
+          "value": null,
+          "url": "https://en.wikipedia.org/wiki/Suhaib_Webb",
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {},
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 32780,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 695,
+          "element_info": {
+            "delta": 695
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 33646,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 942,
+          "element_info": {
+            "delta": 247
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 34847,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 1218,
+          "element_info": {
+            "delta": 276
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 35497,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 1484,
+          "element_info": {
+            "delta": 266
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 36629,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 2696,
+          "element_info": {
+            "delta": 1212
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "click",
+          "timestamp_ms": 39891,
+          "selector": "#cite_note-11 > span.reference-text:nth-child(2) > a.external",
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": 356,
+          "y": 270,
+          "element_info": {
+            "tag": "a",
+            "id": null,
+            "text": "https://themuslim500.com/profiles/imam-suhaib-webb/",
+            "type": null,
+            "name": null,
+            "placeholder": null
+          },
+          "selectors": [
+            "#cite_note-11 > span.reference-text:nth-child(2) > a.external"
+          ]
+        },
+        {
+          "action_type": "navigate",
+          "timestamp_ms": 40880,
+          "selector": null,
+          "value": null,
+          "url": "https://themuslim500.com/profiles/imam-suhaib-webb/",
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {},
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 43998,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 530,
+          "element_info": {
+            "delta": 530
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 44879,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 677,
+          "element_info": {
+            "delta": 147
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 45798,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 0,
+          "element_info": {
+            "delta": -677
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "click",
+          "timestamp_ms": 48670,
+          "selector": "div.x-anchor-content > div.x-anchor-text > span.x-anchor-text-primary",
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": 674,
+          "y": 296,
+          "element_info": {
+            "tag": "span",
+            "id": null,
+            "text": "Guest Contributions | 2023",
+            "type": null,
+            "name": null,
+            "placeholder": null
+          },
+          "selectors": [
+            "div.x-anchor-content > div.x-anchor-text > span.x-anchor-text-primary"
+          ]
+        },
+        {
+          "action_type": "navigate",
+          "timestamp_ms": 49583,
+          "selector": null,
+          "value": null,
+          "url": "https://themuslim500.com/guest-contributions-2023/",
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {},
+          "selectors": null
+        },
+        {
+          "action_type": "click",
+          "timestamp_ms": 52454,
+          "selector": "ul > li:nth-child(1) > a:nth-child(1)",
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": 308,
+          "y": 254,
+          "element_info": {
+            "tag": "a",
+            "id": null,
+            "text": "Protecting Al-Aqsa Mosque",
+            "type": null,
+            "name": null,
+            "placeholder": null
+          },
+          "selectors": [
+            "ul > li:nth-child(1) > a:nth-child(1)"
+          ]
+        },
+        {
+          "action_type": "navigate",
+          "timestamp_ms": 53417,
+          "selector": null,
+          "value": null,
+          "url": "https://themuslim500.com/guest-contributions-2023/protecting-al-aqsa-mosque/",
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {},
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 57147,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 3458,
+          "element_info": {
+            "delta": 3458
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "scroll",
+          "timestamp_ms": 58013,
+          "selector": null,
+          "value": null,
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": 4982,
+          "element_info": {
+            "delta": 1524
+          },
+          "selectors": null
+        },
+        {
+          "action_type": "wait",
+          "timestamp_ms": 64602,
+          "selector": null,
+          "value": "assert:text:element",
+          "url": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "element_info": {
+            "assertion": true,
+            "type": "text",
+            "value": null
+          },
+          "selectors": null
+        }
+      ],
+      "created_at": "2025-12-30T15:07:18.059746",
+      "updated_at": "2025-12-30T15:07:18.059758"
+    }
+  ]
+}

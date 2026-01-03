@@ -54,7 +54,7 @@ llm:
   
   # Model to use (Required)
   # Examples: gpt-4o, claude-3-opus-20240229
-  model: gpt-4o
+  model: gpt-4.1
   
   # API Base URL (Required for custom gateways like Copilot)
   # For OpenAI: https://api.openai.com/v1

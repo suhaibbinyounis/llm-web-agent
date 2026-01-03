@@ -1,0 +1,9 @@
+# Enforce Python as the primary language
+*.py linguist-language=Python linguist-detectable=true
+
+# Ignore generated reports from language statistics
+my-reports/* linguist-vendored
+
+# Ignore instruction files and documentation from language statistics
+instructions/* linguist-documentation
+*.md linguist-documentation
