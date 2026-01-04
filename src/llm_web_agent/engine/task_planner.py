@@ -117,7 +117,7 @@ Interactive Elements: {elements_summary}
 ## Instructions
 Create steps to achieve the goal. For EACH step, provide:
 1. action: navigate|click|fill|type|select|scroll|wait|press_key|hover|extract
-2. target: Human-readable description
+2. target: For "navigate" action, this MUST be a full URL starting with https:// (e.g., "https://www.example.com"). For other actions, use a human-readable description.
 3. locators: MULTIPLE ways to find the element (in priority order):
    - testid: data-testid attribute value (if likely exists)
    - role: ARIA role (button, link, textbox, etc.) with name
@@ -125,20 +125,19 @@ Create steps to achieve the goal. For EACH step, provide:
    - placeholder: Placeholder text (for inputs)
    - text: Exact visible text
    - css: CSS selector
-4. value: For fill/type actions
+4. value: For fill/type actions, and also for navigate actions (the URL)
 5. wait_after: navigation|network_idle|selector:XXX|time:XXX (optional)
+
+IMPORTANT: For navigate actions, "target" and "value" MUST be actual URLs like "https://www.saucedemo.com", NOT descriptions.
 
 ## Response Format (JSON only)
 {{
   "steps": [
     {{
-      "action": "click",
-      "target": "Login button",
-      "locators": [
-        {{"type": "testid", "value": "login-btn"}},
-        {{"type": "role", "value": "button", "name": "Login"}},
-        {{"type": "text", "value": "Login"}}
-      ],
+      "action": "navigate",
+      "target": "https://www.saucedemo.com",
+      "locators": [],
+      "value": "https://www.saucedemo.com",
       "wait_after": "navigation"
     }},
     {{
@@ -150,6 +149,16 @@ Create steps to achieve the goal. For EACH step, provide:
         {{"type": "placeholder", "value": "Enter username"}}
       ],
       "value": "john_doe"
+    }},
+    {{
+      "action": "click",
+      "target": "Login button",
+      "locators": [
+        {{"type": "testid", "value": "login-btn"}},
+        {{"type": "role", "value": "button", "name": "Login"}},
+        {{"type": "text", "value": "Login"}}
+      ],
+      "wait_after": "navigation"
     }}
   ],
   "framework_hints": ["react"],
@@ -406,7 +415,33 @@ class TaskPlanner:
             except ValueError:
                 logger.warning(f"Unknown action type: {action_str}")
                 action = ActionType.CLICK  # Default
-            
+
+            target = data.get('target', '')
+            value = data.get('value')
+
+            # For navigate actions, ensure target is a valid URL
+            if action == ActionType.NAVIGATE:
+                # Use value if it looks like a URL, otherwise try to fix target
+                if value and (value.startswith('http://') or value.startswith('https://')):
+                    target = value
+                elif not (target.startswith('http://') or target.startswith('https://')):
+                    # Try to extract domain from target description
+                    import re
+                    # Look for domain-like patterns in the target
+                    domain_match = re.search(r'(\w+(?:\.\w+)+)', target.lower())
+                    if domain_match:
+                        target = f"https://{domain_match.group(1)}"
+                    else:
+                        # Common site mappings for fallback
+                        target_lower = target.lower()
+                        if 'saucedemo' in target_lower:
+                            target = 'https://www.saucedemo.com'
+                        elif 'google' in target_lower:
+                            target = 'https://www.google.com'
+                        else:
+                            logger.warning(f"Navigate target '{target}' is not a valid URL")
+                value = target  # Ensure value matches target for navigate
+
             # Parse locators
             locators = []
             for loc_data in data.get('locators', []):
@@ -420,18 +455,17 @@ class TaskPlanner:
                     ))
                 except ValueError:
                     continue
-            
-            # Ensure at least one locator
-            if not locators:
-                target = data.get('target', '')
+
+            # Ensure at least one locator (not needed for navigate)
+            if not locators and action != ActionType.NAVIGATE:
                 locators = [Locator(type=LocatorType.TEXT, value=target)]
-            
+
             return PlannedStep(
                 id=f"step_{index}",
                 action=action,
-                target=data.get('target', ''),
+                target=target,
                 locators=locators,
-                value=data.get('value'),
+                value=value,
                 wait_after=data.get('wait_after'),
                 optional=data.get('optional', False),
             )
